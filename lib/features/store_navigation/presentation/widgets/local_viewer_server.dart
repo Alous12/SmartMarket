@@ -18,6 +18,7 @@ class LocalViewerServer {
       '/index.html': 'assets/store_viewer/index.html',
       '/viewer.js': 'assets/store_viewer/viewer.js',
       '/instancing.js': 'assets/store_viewer/instancing.js',
+      '/labels.js': 'assets/store_viewer/labels.js',
       '/vendor/three.module.min.js':
           'assets/store_viewer/vendor/three.module.min.js',
       '/vendor/three.core.min.js':

@@ -4,6 +4,14 @@ export function countTriangles(mesh) {
   return (mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3;
 }
 
+// Los textos exportados desde Blender (kind=editable_label) no se dibujan: la app
+// dibuja etiquetas propias que se pueden renombrar (labels.js).
+export function isEditableLabel(object) {
+  // Un nodo con varias primitivas llega como Group con una malla hija por primitiva.
+  const kind = object.userData.kind ?? (object.parent?.isGroup ? object.parent.userData.kind : undefined);
+  return kind === 'editable_label';
+}
+
 // Keep the original hierarchy and extras for future inventory/route lookup.
 // Render shared geometry/material with a separate static visual hierarchy.
 export function instanceStoreMeshes(source) {
@@ -11,8 +19,13 @@ export function instanceStoreMeshes(source) {
   const groups = new Map();
   let originalTriangles = 0;
   let originalMeshes = 0;
+  let labelTriangles = 0;
   source.traverseVisible(object => {
     if (!object.isMesh) return;
+    if (isEditableLabel(object)) {
+      labelTriangles += countTriangles(object);
+      return;
+    }
     if (object.isSkinnedMesh || object.morphTargetInfluences?.length) {
       throw new Error('La vista espera mallas estáticas, sin deformaciones.');
     }
@@ -50,5 +63,5 @@ export function instanceStoreMeshes(source) {
   }
   source.visible = false;
   source.traverse(object => { object.matrixAutoUpdate = false; });
-  return {visuals, bindings, originalTriangles, originalMeshes};
+  return {visuals, bindings, originalTriangles, originalMeshes, labelTriangles};
 }

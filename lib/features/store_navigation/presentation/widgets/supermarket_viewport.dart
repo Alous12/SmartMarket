@@ -15,12 +15,20 @@ class SupermarketViewport extends StatefulWidget {
     required this.metrics,
     required this.measureContinuously,
     required this.onRetry,
+    this.productNames = const {},
+    this.onProductTapped,
   });
 
   final StoreModel model;
   final ValueNotifier<RenderMetrics> metrics;
   final bool measureContinuously;
   final VoidCallback onRetry;
+
+  /// Nombres editados en la app (product_id -> nombre) que reemplazan a los del GLB.
+  final Map<String, String> productNames;
+
+  /// Se llama al tocar una caja de producto en la vista 3D.
+  final ValueChanged<String>? onProductTapped;
 
   @override
   State<SupermarketViewport> createState() => SupermarketViewportState();
@@ -100,6 +108,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
           setState(() => _ready = true);
           _command('setContinuous', widget.measureContinuously);
           _command('setActive', _active);
+          _command('setOneFingerMode', _oneFingerMode);
+          _command('showNodes', _showNodes);
+          _sendNames(widget.productNames, const {});
         case 'metrics':
           final metrics = RenderMetrics(
             fps: (data['fps'] as num).toDouble(),
@@ -115,6 +126,8 @@ class SupermarketViewportState extends State<SupermarketViewport>
               'load_ms=${metrics.loadMilliseconds}',
             );
           }
+        case 'productTapped':
+          widget.onProductTapped?.call(data['id'].toString());
         case 'error':
           _onError(data['message'].toString());
       }
@@ -138,8 +151,40 @@ class SupermarketViewportState extends State<SupermarketViewport>
     );
   }
 
+  String _oneFingerMode = 'rotate';
+  bool _showNodes = false;
+
   void resetView() => _command('reset');
   void zoomBy(double factor) => _command('zoomBy', factor);
+  void rotateBy(double degrees) => _command('rotateBy', degrees);
+  void setView(String name) => _command('setView', name);
+  void selectProduct(String? id) => _command('selectProduct', id ?? '');
+
+  /// 'rotate': un dedo gira la cámara; 'pan': un dedo desplaza el mapa.
+  void setOneFingerMode(String mode) {
+    _oneFingerMode = mode;
+    _command('setOneFingerMode', mode);
+  }
+
+  void showNodes(bool value) {
+    _showNodes = value;
+    _command('showNodes', value);
+  }
+
+  /// Envía los nombres nuevos y restaura los originales de los que se quitaron.
+  void _sendNames(Map<String, String> names, Map<String, String> previous) {
+    final original = {
+      for (final product in widget.model.metadata.products)
+        product.id: product.name,
+    };
+    final changes = <String, String>{
+      for (final id in previous.keys)
+        if (!names.containsKey(id) && original[id] != null) id: original[id]!,
+      for (final entry in names.entries)
+        if (previous[entry.key] != entry.value) entry.key: entry.value,
+    };
+    if (changes.isNotEmpty) _command('setProductNames', changes);
+  }
 
   void _onError(String error) {
     if (!mounted || _error != null) return;
@@ -154,6 +199,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.measureContinuously != widget.measureContinuously) {
       _command('setContinuous', widget.measureContinuously);
+    }
+    if (!identical(oldWidget.productNames, widget.productNames)) {
+      _sendNames(widget.productNames, oldWidget.productNames);
     }
   }
 

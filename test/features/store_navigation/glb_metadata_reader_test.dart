@@ -87,5 +87,21 @@ void main() {
     expect(metadata.productIds, contains('ARROZ_001'));
     expect(metadata.productIds.length, 135);
     expect(metadata.routeNodeIds.length, 59);
+    final arroz = metadata.products.firstWhere((p) => p.id == 'ARROZ_001');
+    expect(arroz.name, 'Arroz-Perlita');
+  });
+
+  test('El supermercado piloto tiene cajas, productos editables y nodos', () {
+    final bytes = File('Modelos_3D/supermercado_2.glb').readAsBytesSync();
+    final metadata = readGlbMetadata(bytes);
+    expect(metadata.triangles, inInclusiveRange(1, 80000));
+    expect(metadata.productIds.length, 247);
+    expect(metadata.products.length, 247);
+    expect(metadata.routeNodeIds, contains('node_entrada'));
+    expect(metadata.routeNodeIds.length, 276);
+    final first = metadata.products.firstWhere((p) => p.id == 'PIL_0001');
+    expect(first.name, isNotEmpty);
+    expect(first.category, 'Frutas');
+    expect(first.routeNode, startsWith('node_'));
   });
 }

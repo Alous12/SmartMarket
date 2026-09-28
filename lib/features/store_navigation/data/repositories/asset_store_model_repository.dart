@@ -10,16 +10,15 @@ class AssetStoreModelRepository implements StoreModelRepository {
     : _bundle = bundle ?? rootBundle;
 
   final AssetBundle _bundle;
-  static const assetPath = 'Modelos_3D/supermercado_1.glb';
 
   @override
-  Future<StoreModel> load() async {
-    final data = await _bundle.load(assetPath);
+  Future<StoreModel> load(Supermarket store) async {
+    final data = await _bundle.load(store.assetPath);
     final bytes = data.buffer.asUint8List(
       data.offsetInBytes,
       data.lengthInBytes,
     );
     final metadata = await compute(readGlbMetadata, bytes);
-    return StoreModel(bytes: bytes, metadata: metadata);
+    return StoreModel(store: store, bytes: bytes, metadata: metadata);
   }
 }

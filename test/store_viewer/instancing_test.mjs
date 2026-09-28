@@ -17,6 +17,44 @@ register('data:text/javascript,' + encodeURIComponent(`
 const THREE = await import(threeUrl);
 const {GLTFLoader} = await import(new URL('assets/store_viewer/vendor/GLTFLoader.js', root));
 const {instanceStoreMeshes, countTriangles} = await import(new URL('assets/store_viewer/instancing.js', root));
+const {boxFrontFace} = await import(new URL('assets/store_viewer/labels.js', root));
+
+// Node no decodifica imágenes: se quitan las texturas del JSON del GLB (la geometría
+// y los extras no cambian).
+function withoutTextures(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const jsonLength = view.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength)));
+  if (!json.images) return bytes;
+  delete json.images; delete json.textures; delete json.samplers;
+  const strip = value => {
+    if (Array.isArray(value)) return value.forEach(strip);
+    if (value && typeof value === 'object') {
+      for (const key of Object.keys(value)) {
+        if (/Texture$/.test(key)) delete value[key]; else strip(value[key]);
+      }
+    }
+  };
+  strip(json.materials);
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const padded = (text.length + 3) & ~3;
+  const rest = bytes.subarray(20 + jsonLength);
+  const out = new Uint8Array(20 + padded + rest.length).fill(0x20, 20, 20 + padded);
+  out.set(bytes.subarray(0, 20));
+  out.set(text, 20);
+  out.set(rest, 20 + padded);
+  const outView = new DataView(out.buffer);
+  outView.setUint32(8, out.length, true);
+  outView.setUint32(12, padded, true);
+  return out;
+}
+
+async function loadGlb(path) {
+  const bytes = withoutTextures(await readFile(new URL(path, root)));
+  return new GLTFLoader().parseAsync(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '',
+  );
+}
 
 test('Las instancias preservan transformaciones, colores y metadatos', () => {
   const source = new THREE.Group();
@@ -67,7 +105,9 @@ test('El GLB conserva sus triángulos e IDs y reduce objetos dibujables', async 
   const triangles = result.visuals.children.reduce((total, mesh) =>
     total + countTriangles(mesh) * (mesh.isInstancedMesh ? mesh.count : 1), 0);
   assert.equal(triangles, result.originalTriangles);
-  assert.equal(triangles, 55112);
+  // Los textos de Blender se sustituyen por etiquetas renombrables (labels.js).
+  assert.ok(result.labelTriangles > 0);
+  assert.equal(triangles + result.labelTriangles, 55112);
   assert.ok(result.visuals.children.length < 300);
   let productFound = false, entranceFound = false;
   gltf.scene.traverse(object => {
@@ -76,4 +116,32 @@ test('El GLB conserva sus triángulos e IDs y reduce objetos dibujables', async 
   });
   assert.ok(productFound && entranceFound);
   console.log(`Supermercado: ${result.originalMeshes} objetos → ${result.visuals.children.length} grupos de dibujo; ${triangles} triángulos.`);
+});
+
+test('El supermercado piloto tiene cajas con frente hacia su nodo de ruta', async () => {
+  const gltf = await loadGlb('Modelos_3D/supermercado_2.glb');
+  const result = instanceStoreMeshes(gltf.scene);
+  assert.ok(result.visuals.children.length <= 4, 'mapa + cajas instanciadas');
+  const nodes = new Map(), groups = new Map();
+  const boxes = [];
+  gltf.scene.traverse(object => {
+    const data = object.userData;
+    if (data.kind === 'route_node') nodes.set(data.node_id, object.getWorldPosition(new THREE.Vector3()));
+    if (data.kind === 'product_group') groups.set(data.product_id, data);
+    if (data.kind === 'product_box') boxes.push(object);
+  });
+  assert.equal(groups.size, 247);
+  assert.equal(boxes.length, 988);
+  assert.equal(nodes.size, 276);
+  let facing = 0;
+  for (const box of boxes) {
+    const face = boxFrontFace(box);
+    assert.ok(Math.abs(face.normal.y) < 0.01, 'la etiqueta es vertical');
+    assert.ok(face.width > 0.3 && face.height > 0.2);
+    const node = nodes.get(groups.get(box.userData.product_id).route_node);
+    assert.ok(node, 'cada producto apunta a un nodo existente');
+    if (node.clone().sub(face.center).setY(0).dot(face.normal) > 0) facing++;
+  }
+  // El frente mira hacia el pasillo donde está su nodo (se toleran esquinas).
+  assert.ok(facing / boxes.length > 0.9, `frentes hacia el pasillo: ${facing}/${boxes.length}`);
 });

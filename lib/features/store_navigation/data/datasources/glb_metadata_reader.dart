@@ -45,6 +45,7 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
   var instances = 0;
   final routeIds = <String>{};
   final productIds = <String>{};
+  final products = <String, StoreProduct>{};
   for (final index in activeNodes) {
     final node = nodes[index] as Map<String, dynamic>;
     final extras = (node['extras'] as Map?) ?? {};
@@ -52,7 +53,17 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
       routeIds.add((extras['node_id'] ?? node['name']) as String);
     }
     if (extras['kind'] == 'product_group' && extras['product_id'] is String) {
-      productIds.add(extras['product_id'] as String);
+      final id = extras['product_id'] as String;
+      productIds.add(id);
+      products.putIfAbsent(
+        id,
+        () => StoreProduct(
+          id: id,
+          name: (extras['display_name'] ?? id).toString(),
+          category: (extras['category'] ?? '').toString(),
+          routeNode: (extras['route_node'] ?? '').toString(),
+        ),
+      );
     }
     if (node['mesh'] == null) continue;
     instances++;
@@ -70,5 +81,6 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
     materials: ((json['materials'] as List?) ?? []).length,
     routeNodeIds: List.unmodifiable(routeIds),
     productIds: List.unmodifiable(productIds),
+    products: List.unmodifiable(products.values),
   );
 }

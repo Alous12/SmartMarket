@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
+import '../widgets/product_sheets.dart';
 import '../widgets/render_metrics.dart';
 import '../widgets/supermarket_viewport.dart';
 
@@ -17,6 +18,10 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   GlobalKey<SupermarketViewportState> _viewportKey = GlobalKey();
   final _metrics = ValueNotifier(const RenderMetrics());
   bool _showMetrics = false;
+  bool _panWithOneFinger = false;
+  bool _showNodes = false;
+
+  SupermarketViewportState? get _viewport => _viewportKey.currentState;
 
   @override
   void dispose() {
@@ -24,25 +29,75 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     super.dispose();
   }
 
+  void _selectStore(Supermarket store) {
+    if (store == ref.read(selectedStoreProvider)) return;
+    ref.read(selectedStoreProvider.notifier).select(store);
+    setState(() {
+      _viewportKey = GlobalKey();
+      _panWithOneFinger = false;
+      _showNodes = false;
+    });
+  }
+
+  Future<void> _editProduct(StoreModel model, String productId) async {
+    final product = model.metadata.products
+        .where((p) => p.id == productId)
+        .firstOrNull;
+    if (product == null) return;
+    _viewport?.selectProduct(product.id);
+    final names = ref.read(productNamesProvider).value ?? const {};
+    final result = await showProductEditor(
+      context,
+      product: product,
+      currentName: names[product.id] ?? product.name,
+    );
+    if (!mounted) return;
+    if (result != null) {
+      await ref.read(productNamesProvider.notifier).rename(product, result);
+    }
+  }
+
+  Future<void> _openProductList(StoreModel model) async {
+    final action = await showProductList(
+      context,
+      store: model.store,
+      products: model.metadata.products,
+    );
+    if (!mounted || action == null) return;
+    if (action.edit) {
+      await _editProduct(model, action.productId);
+    } else {
+      _viewport?.selectProduct(action.productId);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'SmartMarket',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             Text(
-              'Mi supermercado',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              store.title,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             ),
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Productos',
+            icon: const Icon(Icons.inventory_2_outlined),
+            onPressed: model.hasValue
+                ? () => _openProductList(model.requireValue)
+                : null,
+          ),
           IconButton(
             tooltip: 'Rendimiento',
             isSelected: _showMetrics,
@@ -52,6 +107,33 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           ),
           const SizedBox(width: 8),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<Supermarket>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final option in Supermarket.values)
+                    ButtonSegment(
+                      value: option,
+                      icon: Icon(
+                        option == Supermarket.natural
+                            ? Icons.storefront_outlined
+                            : Icons.store_mall_directory_outlined,
+                      ),
+                      label: Text(option.shortTitle),
+                    ),
+                ],
+                selected: {store},
+                onSelectionChanged: (selection) =>
+                    _selectStore(selection.single),
+              ),
+            ),
+          ),
+        ),
       ),
       body: SafeArea(
         top: false,
@@ -79,88 +161,194 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               ],
             ),
           ),
-          data: (model) => Stack(
-            fit: StackFit.expand,
-            children: [
-              SupermarketViewport(
-                key: _viewportKey,
-                model: model,
-                metrics: _metrics,
-                measureContinuously: _showMetrics,
-                onRetry: () => setState(() => _viewportKey = GlobalKey()),
-              ),
-              Positioned(
-                top: 14,
-                left: 16,
-                right: 16,
-                child: IgnorePointer(
-                  child: Card(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.touch_app_outlined,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Arrastra para explorar\nPellizca para acercarte',
-                            ),
-                          ),
-                        ],
+          data: (model) => _buildViewer(context, model),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildViewer(BuildContext context, StoreModel model) {
+    final names = ref.watch(productNamesProvider).value ?? const {};
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        SupermarketViewport(
+          key: _viewportKey,
+          model: model,
+          metrics: _metrics,
+          measureContinuously: _showMetrics,
+          productNames: names,
+          onProductTapped: (id) => _editProduct(model, id),
+          onRetry: () => setState(() => _viewportKey = GlobalKey()),
+        ),
+        Positioned(
+          top: 12,
+          left: 16,
+          right: 76,
+          child: IgnorePointer(
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.touch_app_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _panWithOneFinger
+                            ? '1 dedo: mover · 2 dedos: zoom\nToca una caja para renombrarla'
+                            : '1 dedo: girar · 2 dedos: mover y zoom\nToca una caja para renombrarla',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              Positioned(
-                right: 16,
-                bottom: _showMetrics ? 250 : 24,
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  child: Column(
-                    children: [
-                      IconButton(
-                        tooltip: 'Acercar',
-                        onPressed: () =>
-                            _viewportKey.currentState?.zoomBy(1.25),
-                        icon: const Icon(Icons.add),
-                      ),
-                      IconButton(
-                        tooltip: 'Alejar',
-                        onPressed: () => _viewportKey.currentState?.zoomBy(0.8),
-                        icon: const Icon(Icons.remove),
-                      ),
-                      IconButton(
-                        tooltip: 'Centrar mapa',
-                        onPressed: () => _viewportKey.currentState?.resetView(),
-                        icon: const Icon(Icons.center_focus_strong),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (_showMetrics)
-                Positioned(
-                  bottom: 16,
-                  left: 16,
-                  right: 16,
-                  child: ValueListenableBuilder<RenderMetrics>(
-                    valueListenable: _metrics,
-                    builder: (context, metrics, child) => _MetricsCard(
-                      metadata: model.metadata,
-                      metrics: metrics,
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
+        ),
+        Positioned(
+          right: 12,
+          top: 12,
+          bottom: _showMetrics ? 238 : 16,
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: SingleChildScrollView(
+              child: _CameraControls(
+                panWithOneFinger: _panWithOneFinger,
+                showNodes: _showNodes,
+                onZoomIn: () => _viewport?.zoomBy(1.6),
+                onZoomOut: () => _viewport?.zoomBy(0.625),
+                onRotateLeft: () => _viewport?.rotateBy(-45),
+                onRotateRight: () => _viewport?.rotateBy(45),
+                onTopView: () => _viewport?.setView('superior'),
+                onAisleView: () => _viewport?.setView('pasillo'),
+                onReset: () => _viewport?.resetView(),
+                onToggleMode: () {
+                  setState(() => _panWithOneFinger = !_panWithOneFinger);
+                  _viewport?.setOneFingerMode(
+                    _panWithOneFinger ? 'pan' : 'rotate',
+                  );
+                },
+                onToggleNodes: () {
+                  setState(() => _showNodes = !_showNodes);
+                  _viewport?.showNodes(_showNodes);
+                },
+              ),
+            ),
+          ),
+        ),
+        if (_showMetrics)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            right: 16,
+            child: ValueListenableBuilder<RenderMetrics>(
+              valueListenable: _metrics,
+              builder: (context, metrics, child) =>
+                  _MetricsCard(metadata: model.metadata, metrics: metrics),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CameraControls extends StatelessWidget {
+  const _CameraControls({
+    required this.panWithOneFinger,
+    required this.showNodes,
+    required this.onZoomIn,
+    required this.onZoomOut,
+    required this.onRotateLeft,
+    required this.onRotateRight,
+    required this.onTopView,
+    required this.onAisleView,
+    required this.onReset,
+    required this.onToggleMode,
+    required this.onToggleNodes,
+  });
+
+  final bool panWithOneFinger;
+  final bool showNodes;
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+  final VoidCallback onRotateLeft;
+  final VoidCallback onRotateRight;
+  final VoidCallback onTopView;
+  final VoidCallback onAisleView;
+  final VoidCallback onReset;
+  final VoidCallback onToggleMode;
+  final VoidCallback onToggleNodes;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: panWithOneFinger
+                  ? 'Un dedo desplaza (tocar para girar)'
+                  : 'Un dedo gira (tocar para desplazar)',
+              isSelected: panWithOneFinger,
+              icon: const Icon(Icons.threed_rotation),
+              selectedIcon: const Icon(Icons.pan_tool_outlined),
+              onPressed: onToggleMode,
+            ),
+            IconButton(
+              tooltip: 'Acercar',
+              onPressed: onZoomIn,
+              icon: const Icon(Icons.add),
+            ),
+            IconButton(
+              tooltip: 'Alejar',
+              onPressed: onZoomOut,
+              icon: const Icon(Icons.remove),
+            ),
+            IconButton(
+              tooltip: 'Girar a la izquierda',
+              onPressed: onRotateLeft,
+              icon: const Icon(Icons.rotate_left),
+            ),
+            IconButton(
+              tooltip: 'Girar a la derecha',
+              onPressed: onRotateRight,
+              icon: const Icon(Icons.rotate_right),
+            ),
+            IconButton(
+              tooltip: 'Vista superior',
+              onPressed: onTopView,
+              icon: const Icon(Icons.map_outlined),
+            ),
+            IconButton(
+              tooltip: 'Vista a la altura del pasillo',
+              onPressed: onAisleView,
+              icon: const Icon(Icons.directions_walk),
+            ),
+            IconButton(
+              tooltip: 'Mostrar nodos de ruta',
+              isSelected: showNodes,
+              icon: const Icon(Icons.hub_outlined),
+              selectedIcon: const Icon(Icons.hub),
+              onPressed: onToggleNodes,
+            ),
+            IconButton(
+              tooltip: 'Centrar mapa',
+              onPressed: onReset,
+              icon: const Icon(Icons.center_focus_strong),
+            ),
+          ],
         ),
       ),
     );

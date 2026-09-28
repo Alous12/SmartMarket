@@ -23,9 +23,50 @@ lib/
       domain/                # Datos y contrato de repositorio en Dart puro
       presentation/          # Estado Riverpod, pantalla y motor 3D
 Modelos_3D/
-  supermercado_natural.blend # Archivo editable; no se incluye en el APK
-  supermercado_1.glb         # Único modelo incluido como asset de Flutter
+  supermercado_natural.blend     # Supermercado Natural (editable; no va en el APK)
+  supermercado_1.glb             # Exportación de supermercado_natural.blend
+  SmartMarket_mapa3D_2.blend     # SmartMarket Piloto, con productos editables
+  supermercado_2.glb             # Exportación de SmartMarket_mapa3D_2.blend
+  texturas/                      # Atlas horneado que usa el mapa piloto
+  scripts/                       # Generador de cajas, etiquetas y nodos del piloto
 ```
+
+## Dos supermercados y nombres editables
+
+Los botones **Natural / Piloto** bajo el título cambian de modelo. Ambos GLB usan
+el mismo esquema de extras de Blender:
+
+| kind | Objeto | Datos |
+| --- | --- | --- |
+| `product_location` | `slot_<SLOT>` (Empty) | `slot_id`, `shelf_id`, `route_node` |
+| `product_group` | `producto_<ID> \| <nombre>` (Empty) | `product_id`, `display_name`, `category`, `route_node` |
+| `product_box` | `caja_<ID>_<fila><col>` (Mesh) | `product_id`, `row`, `column`; frente = eje local −Y |
+| `editable_label` | `etiqueta_<ID>_<fila><col>` (Texto) | `text` (solo en el .blend del piloto) |
+| `route_node` | `node_*` (Empty) | `node_id`, `vecinos` (piloto) |
+
+La app no dibuja los textos de Blender: dibuja etiquetas propias sobre la cara
+frontal de cada caja (una textura compartida, 1 llamada de dibujo). Toca una caja o
+abre **Productos** (icono de inventario) para buscar, enfocar y renombrar. Los
+cambios se guardan en el teléfono por supermercado (`shared_preferences`) y no
+modifican el GLB. **Restaurar** vuelve al nombre del .blend.
+
+Para regenerar el piloto después de editar el plano en Blender 5.x:
+
+```bash
+blender -b Modelos_3D/SmartMarket_mapa3D_2.blend -P Modelos_3D/scripts/agregar_productos_mapa.py -- --export
+```
+
+El script es repetible: borra y vuelve a crear los 247 grupos (988 cajas), usa
+`catalogo_nombres.py` para los nombres iniciales y exporta `supermercado_2.glb`.
+Guarda el .blend desde Blender si quieres conservar el resultado en el archivo.
+
+## Cámara
+
+Perspectiva libre, como el visor de Blender: un dedo gira alrededor del punto
+central, dos dedos desplazan y hacen zoom hacia el punto pellizcado (hasta 35 cm
+del objetivo). El botón de la mano cambia un dedo a desplazamiento. Botones:
+acercar, alejar, girar 45° a cada lado, vista superior, vista de pasillo, nodos de
+ruta y centrar. Con ratón: izquierdo gira, derecho desplaza, rueda acerca.
 
 `presentation` consume el contrato de `domain`; `data` lo implementa y `app`
 conecta ambos. El WebView queda dentro de la presentación de la vista 3D.
@@ -44,8 +85,7 @@ flutter run -d emulator-5554
 ```
 
 Usa el ID que aparezca en `flutter devices` si es diferente. La app abre
-directamente **Mi supermercado**. Arrastra para desplazarte, pellizca para hacer
-zoom, o usa los botones +/−. El botón de centrar restaura la vista isométrica.
+directamente el **Supermercado Natural**; el botón **Piloto** abre el otro mapa.
 
 ## Rendimiento
 
