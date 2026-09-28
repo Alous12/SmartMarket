@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:;">
+  <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f4f6f0}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+  <script>
+    window.addEventListener('error', event => window.StoreViewer?.postMessage(JSON.stringify({type:'error',message:event.message || 'Error al cargar el visor'})));
+    window.addEventListener('unhandledrejection', event => window.StoreViewer?.postMessage(JSON.stringify({type:'error',message:String(event.reason)})));
+  </script>
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+</head>
+<body><script type="module" src="./viewer.js"></script></body>
+</html>
