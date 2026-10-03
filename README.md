@@ -1,27 +1,35 @@
 # SmartMarket
 
-Base Flutter organizada por funcionalidades. Por ahora solo está implementada
-la vista del supermercado; los otros módulos tienen carpetas reservadas.
+SmartMarket mantiene Flutter, Express y Python en proyectos separados. Flutter
+está organizado por funcionalidades; el backend y los servicios de IA tienen
+carpetas base para crecer sin mezclar sus dependencias ni responsabilidades.
 
-## Organización
+## Arquitectura
 
 ```text
 lib/
-  main.dart                  # Arranque y ProviderScope
-  app/
-    smartmarket_app.dart     # MaterialApp
-    router/                  # go_router; ruta /supermercado
-    providers/               # Conexión de repositorios e implementaciones
-  core/
-    theme/                   # Tema compartido
-    ui/ network/ errors/     # Reservados; sin implementaciones anticipadas
-  features/
-    auth/ home/ catalog/ assistant/ shopping/
-      data/ domain/ presentation/  # Reservados; sin pantallas
+  app/                       # Arranque, router y configuración de Flutter
+  core/                      # Componentes y utilidades compartidas
+  features/                  # Código agrupado por funcionalidad
     store_navigation/
-      data/                  # Lectura del GLB y repositorio de assets
-      domain/                # Datos y contrato de repositorio en Dart puro
-      presentation/          # Estado Riverpod, pantalla y motor 3D
+      data/                  # GLB, persistencia e implementaciones
+      domain/                # Entidades y contratos de repositorio
+      presentation/          # Estado, pantallas y widgets
+    auth/ products/ ...       # Espacio para funcionalidades futuras
+backend/
+  src/
+    routes/                  # Declaración y montaje de rutas HTTP
+    controllers/             # Adaptación HTTP: petición/respuesta
+    services/                # Casos de uso y coordinación de lógica
+    repositories/            # Acceso a datos y proveedores externos
+    models/                  # Modelos del backend
+    database/                # Conexión y configuración de PostgreSQL
+    middlewares/              # Middleware de Express
+    config/                  # Configuración del servidor
+    app.ts server.ts          # Creación e inicio de Express
+ai/
+  models/                    # Modelos Python
+  services/                  # Servicios Python de IA
 Modelos_3D/
   supermercado_natural.blend     # Supermercado Natural (editable; no va en el APK)
   supermercado_1.glb             # Exportación de supermercado_natural.blend
@@ -30,6 +38,24 @@ Modelos_3D/
   texturas/                      # Atlas horneado que usa el mapa piloto
   scripts/                       # Generador de cajas, etiquetas y nodos del piloto
 ```
+
+La comunicación prevista es **Flutter → Express → PostgreSQL / AI**. Flutter
+consume la API HTTP; Express valida y coordina las peticiones mediante sus
+capas, y los servicios del backend serán el punto de integración con PostgreSQL
+y los servicios Python de `ai/`. Por ahora solo existe la base del servidor
+Express: no hay endpoints, conexión a PostgreSQL ni lógica de IA implementados.
+
+En Flutter, cada funcionalidad mantiene sus propias capas: `presentation`
+muestra la interfaz, `domain` contiene reglas y contratos, y `data` implementa
+el acceso a datos. `app/` conecta la aplicación y `core/` contiene elementos
+realmente compartidos.
+
+## Backend
+
+Desde `backend/`, instala dependencias con `npm install`, ejecuta el servidor de
+desarrollo con `npm run dev` o compílalo con `npm run build`. El puerto se
+configura con `PORT` (3000 por defecto). El router `/api` está vacío hasta que se
+añadan funcionalidades.
 
 ## Dos supermercados y nombres editables
 
