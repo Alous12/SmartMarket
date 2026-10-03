@@ -4,13 +4,13 @@ import 'dart:typed_data';
 /// con el mismo esquema de extras (product_group, product_box, route_node).
 enum Supermarket {
   natural(
-    title: 'Supermercado Natural',
-    shortTitle: 'Natural',
+    title: 'Supermercado_1',
+    shortTitle: 'Mini_Market',
     assetPath: 'Modelos_3D/supermercado_1.glb',
   ),
   piloto(
-    title: 'SmartMarket Piloto',
-    shortTitle: 'Piloto',
+    title: 'SmartMarket_2',
+    shortTitle: 'SuperMarket',
     assetPath: 'Modelos_3D/supermercado_2.glb',
   );
 

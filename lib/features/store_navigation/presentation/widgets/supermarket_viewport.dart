@@ -41,6 +41,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
   final _loadWatch = Stopwatch()..start();
   bool _ready = false;
   bool _active = true;
+  bool _closing = false;
+  bool _platformAttached = true;
+  Future<void>? _shutdown;
   String? _error;
   Timer? _initializationTimeout;
 
@@ -57,18 +60,21 @@ class SupermarketViewportState extends State<SupermarketViewport>
   Future<void> _initialize() async {
     try {
       final server = await LocalViewerServer.start(widget.model.bytes);
-      if (!mounted) {
+      if (!mounted || _closing || _error != null) {
         await server.close();
         return;
       }
       _server = server;
       final controller = WebViewController();
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      if (!mounted || _closing) return;
       await controller.setBackgroundColor(const Color(0xFFF4F6F0));
+      if (!mounted || _closing) return;
       await controller.addJavaScriptChannel(
         'StoreViewer',
         onMessageReceived: _onMessage,
       );
+      if (!mounted || _closing) return;
       await controller.setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (request) {
@@ -89,7 +95,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           },
         ),
       );
-      if (!mounted) return;
+      if (!mounted || _closing || _error != null) return;
       setState(() => _controller = controller);
       await controller.loadRequest(server.uri);
     } catch (error) {
@@ -98,7 +104,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
   }
 
   void _onMessage(JavaScriptMessage message) {
-    if (!mounted) return;
+    if (!mounted || _closing || !_platformAttached || _error != null) return;
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
       switch (data['type']) {
@@ -106,6 +112,11 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _initializationTimeout?.cancel();
           _loadWatch.stop();
           setState(() => _ready = true);
+          debugPrint(
+            'SMARTMARKET_3D ready store=${widget.model.store.name} '
+            'load_ms=${_loadWatch.elapsedMilliseconds} '
+            'objects=${data['drawObjects']} products=${data['products']}',
+          );
           _command('setContinuous', widget.measureContinuously);
           _command('setActive', _active);
           _command('setOneFingerMode', _oneFingerMode);
@@ -137,8 +148,12 @@ class SupermarketViewportState extends State<SupermarketViewport>
   }
 
   void _command(String method, [Object? value]) {
-    if (_controller == null ||
-        (method != 'dispose' && (!_ready || _error != null))) {
+    if (!mounted ||
+        !_platformAttached ||
+        _closing ||
+        _controller == null ||
+        !_ready ||
+        _error != null) {
       return;
     }
     final argument = value == null ? '' : jsonEncode(value);
@@ -187,9 +202,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
   }
 
   void _onError(String error) {
-    if (!mounted || _error != null) return;
+    if (!mounted || _closing || _error != null) return;
     debugPrint('SMARTMARKET_3D error: $error');
-    _command('dispose');
+    unawaited(shutdown());
     _initializationTimeout?.cancel();
     setState(() => _error = 'No se pudo iniciar la vista 3D.');
   }
@@ -207,15 +222,38 @@ class SupermarketViewportState extends State<SupermarketViewport>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _platformAttached = state != AppLifecycleState.detached;
     _active = state == AppLifecycleState.resumed;
+    debugPrint('SMARTMARKET_3D lifecycle=${state.name}');
     _command('setActive', _active);
+  }
+
+  /// Libera WebGL antes de retirar la vista nativa al cambiar/reintentar/salir.
+  Future<void> shutdown() => _shutdown ??= _releaseViewer();
+
+  Future<void> _releaseViewer() async {
+    _closing = true;
+    _initializationTimeout?.cancel();
+    final controller = _controller;
+    if (controller != null && _platformAttached) {
+      try {
+        await controller
+            .runJavaScript('window.smartMarket?.dispose()')
+            .timeout(const Duration(seconds: 2));
+      } catch (error) {
+        debugPrint('SMARTMARKET_3D cleanup: $error');
+      }
+    }
+    await _server?.close();
+    _server = null;
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _initializationTimeout?.cancel();
-    _command('dispose');
+    // No enviar llamadas al canal nativo después de desmontar Flutter.
+    _closing = true;
     final server = _server;
     if (server != null) unawaited(server.close());
     _loadWatch.stop();

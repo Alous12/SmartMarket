@@ -50,7 +50,8 @@ ID_PREFIX = "PIL"
 
 # Ancho util de la cara de cada modulo que corresponde a una zona SKU (m)
 MODULE_WIDTH = {"E01": 3.4, "E02": 3.4, "E03": 3.4, "E04": 2.35, "E05": 2.4, "E06": 3.44,
-                "F01": 1.3, "F02": 0.7, "F03": 2.0, "S03i": 2.4, "S01i": 2.4}
+                "F01": 1.3, "F02": 0.7, "F03": 2.0, "S03i": 2.4, "S01i": 2.4,
+                "S07": 1.8}
 DEFAULT_WIDTH = 2.9      # sectores S01-S08: dos zonas por modulo de 6.1 m
 
 
@@ -113,10 +114,29 @@ def _support_heights(bvh, x, y):
 
 def _levels(code, supports):
     """Devuelve (lista de (z_base, alto), columnas, modo, profundidad)."""
+    # Cada bloque conserva cuatro cajas: dos columnas sobre dos niveles reales.
+    if code == "E01":
+        boards = sorted(s for s in supports if 0.8 <= s <= 1.7)
+        assert len(boards) >= 2, f"Repisas E01 no encontradas: {supports}"
+        return [(s + 0.006, 0.43) for s in boards[:2]], 2, "repisa", 0.42
+    if code == "E06":
+        boards = sorted(s for s in supports if 1.0 <= s <= 2.2)
+        assert len(boards) >= 2, f"Repisas E06 no encontradas: {supports}"
+        return [(s + 0.006, 0.53) for s in boards[:2]], 2, "repisa", 0.42
+    if code == "E04":
+        return [(0.506, 0.38), (1.066, 0.38)], 2, "escalonado", 0.42
+    if code == "E03":
+        return [(0.364, 0.30), (0.764, 0.30)], 2, "repisa", 0.38
+    if code == "S07":
+        return [(0.364, 0.33), (0.804, 0.33)], 2, "repisa", 0.38
+    if code == "S08":
+        return [(1.196, 0.32), (1.831, 0.32)], 2, "repisa", 0.38
+    if code == "S02":
+        return [(1.026, 0.25), (1.281, 0.25)], 2, "mostrador", 0.36
+    if code == "S04":
+        return [(0.78, 0.38), (1.30, 0.38)], 2, "puerta", 0.10
     if code in ("F01", "F02"):          # refrigeradores: frentes sobre la puerta de vidrio
-        if code == "F02":
-            return [(0.40, 0.27), (0.71, 0.27), (1.02, 0.27), (1.33, 0.27)], 1, "puerta", 0.06
-        return [(0.78, 0.30), (1.12, 0.30)], 2, "puerta", 0.06
+        return [(0.60, 0.38), (1.15, 0.38)], 2, "puerta", 0.06
     top = supports[0] if supports else 0.9
     if code == "F03":                   # vitrina curva: exhibición sobre el respaldo
         return [(1.31, 0.24), (1.56, 0.24)], 2, "respaldo", 0.24
@@ -139,7 +159,13 @@ def _levels(code, supports):
 
 
 def _label(name, text, box, frame, center, width, height, pid):
-    cu = bpy.data.curves.new(name, "FONT")
+    # Editar el texto de una caja actualiza las cuatro etiquetas en Blender.
+    cu = bpy.data.curves.get(f"NOMBRE_{pid}")
+    if cu is not None:
+        ob = bpy.data.objects.new(name, cu)
+        ob["kind"], ob["product_id"], ob["text"] = "editable_label", pid, text
+        return ob
+    cu = bpy.data.curves.new(f"NOMBRE_{pid}", "FONT")
     cu.body = text
     cu.align_x, cu.align_y = "CENTER", "CENTER"
     cu.resolution_u = 2
@@ -156,6 +182,8 @@ def _label(name, text, box, frame, center, width, height, pid):
 
 def build(report=True):
     sc = _scene()
+    previous_names = {o.get("product_id"): o.get("display_name") for o in sc.objects
+                      if o.get("kind") == "product_group"}
     _append_from_natural()
     _fix_atlas()
     _clear_previous()
@@ -188,23 +216,35 @@ def build(report=True):
         n = Vector((math.cos(ang), math.sin(ang), 0.0))           # normal hacia el pasillo
         t = up.cross(n)                                            # derecha del cliente
         face = Vector((z.location.x, z.location.y, 0.0)) - n * 0.12
+        if code == "S07":
+            # La vitrina delantera es más corta que el panel trasero de este sector.
+            # Sus dos bloques deben quedar dentro de la vitrina, no de la pared.
+            siblings = [a for a in zones if a["instancia"] == z["instancia"]]
+            midpoint = sum((a.location for a in siblings), Vector()) / len(siblings)
+            along = (z.location - midpoint).dot(t)
+            face += t * (-along + math.copysign(0.95, along))
         probe = face - n * 0.18
         levels, cols, mode, depth = _levels(code, _support_heights(bvh, probe.x, probe.y))
         modes[mode] = modes.get(mode, 0) + 1
         width = MODULE_WIDTH.get(code, DEFAULT_WIDTH)
-        col_w = min(1.34, (width * 0.9 - 0.06 * (cols - 1)) / cols)
+        col_w = min(1.34, (width * 0.88 - 0.08 * (cols - 1)) / cols)
         if mode == "puerta":
             front = face - n * 0.02
         elif mode == "respaldo":
             front = face - n * 0.83
         elif mode == "encima":
             front = face - n * 0.03
+        elif mode == "mostrador":
+            front = face - n * 0.36
+        elif mode == "escalonado":
+            front = face - n * 0.04
         else:
-            front = face + n * 0.012
+            front = face - n * 0.04
         idx = per_cat.get(cat, 0)
         per_cat[cat] = idx + 1
         name = nombre_para(cat, idx)
         pid = f"{ID_PREFIX}_{zid:04d}"
+        name = previous_names.get(pid) or name
         slot_id = f"SLOT_{z['instancia']}_{zid:03d}"
         z_mid = (levels[0][0] + levels[-1][0] + levels[-1][1]) / 2
         origin = front - n * (depth / 2) + up * z_mid
@@ -234,8 +274,10 @@ def build(report=True):
         first_label = None
         for li, (zb, h) in enumerate(levels, start=1):
             for ci in range(cols):
-                cx = (ci - (cols - 1) / 2) * (col_w + 0.06)
+                cx = (ci - (cols - 1) / 2) * (col_w + 0.08)
                 center = origin + t * cx + up * (zb + h / 2 - z_mid)
+                if mode == "escalonado":
+                    center -= n * (li - 1) * 0.76
                 bname = f"caja_{pid}_{li}{ci + 1}"
                 box = bpy.data.objects.new(bname, box_mesh)
                 col.objects.link(box)

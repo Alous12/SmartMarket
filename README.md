@@ -87,6 +87,25 @@ flutter run -d emulator-5554
 Usa el ID que aparezca en `flutter devices` si es diferente. La app abre
 directamente el **Supermercado Natural**; el botón **Piloto** abre el otro mapa.
 
+### Instalación y depuración
+
+Si aparece `INSTALL_FAILED_INSUFFICIENT_STORAGE`, el APK se compiló pero Android
+no tiene espacio suficiente para instalarlo. Comprueba el almacenamiento interno
+del emulador con `adb -s emulator-5554 shell df -h /data`. Limpiar el proyecto con
+`flutter clean` no libera ese almacenamiento. El APK de debug incluye el motor y
+las herramientas de depuración; los archivos `.blend` no se empaquetan.
+
+En esta máquina, `Medium_Phone` y `Medium_Phone_API_36.0` son dispositivos
+distintos. Usa `Medium_Phone_API_36.0` para esta prueba: la instalación falló por
+falta de espacio en `Medium_Phone`. En VS Code selecciona el emulador iniciado en
+la barra inferior y pulsa **F5**, o ejecuta `flutter run -d emulator-5554 --debug`.
+Con el terminal de Flutter activo, **r** hace hot reload y **R** reinicia Dart.
+
+Espera a que terminen las actualizaciones de Android antes de probar: actualizar
+Android System WebView puede cerrar SmartMarket porque su mapa usa ese
+componente. Los registros `SMARTMARKET_3D ready` confirman que el mapa cargó.
+Para ver un cierre nativo usa `adb -s emulator-5554 logcat -b crash -d`.
+
 ## Rendimiento
 
 Pulsa el velocímetro de la barra superior para abrir **Rendimiento 3D**. Muestra

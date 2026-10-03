@@ -105,9 +105,19 @@ test('El GLB conserva sus triángulos e IDs y reduce objetos dibujables', async 
   const triangles = result.visuals.children.reduce((total, mesh) =>
     total + countTriangles(mesh) * (mesh.isInstancedMesh ? mesh.count : 1), 0);
   assert.equal(triangles, result.originalTriangles);
-  // Los textos de Blender se sustituyen por etiquetas renombrables (labels.js).
-  assert.ok(result.labelTriangles > 0);
-  assert.equal(triangles + result.labelTriangles, 55112);
+  // Los textos editables quedan en Blender; la app crea su atlas de etiquetas.
+  assert.equal(result.labelTriangles, 0);
+  assert.ok(triangles < 80000);
+  const fixtures = [];
+  gltf.scene.traverse(object => {
+    if (object.userData.kind === 'fixture') fixtures.push(object);
+  });
+  assert.equal(fixtures.length, 12);
+  for (const fixture of fixtures) {
+    const box = new THREE.Box3().setFromObject(fixture);
+    // El corredor transversal Y=2 de Blender es Z=-2 en glTF.
+    assert.ok(box.max.z < -2.9 || box.min.z > -1.1, 'corredor central libre');
+  }
   assert.ok(result.visuals.children.length < 300);
   let productFound = false, entranceFound = false;
   gltf.scene.traverse(object => {
@@ -137,11 +147,17 @@ test('El supermercado piloto tiene cajas con frente hacia su nodo de ruta', asyn
   for (const box of boxes) {
     const face = boxFrontFace(box);
     assert.ok(Math.abs(face.normal.y) < 0.01, 'la etiqueta es vertical');
-    assert.ok(face.width > 0.3 && face.height > 0.2);
+    assert.ok(face.width > 0.2 && face.height > 0.2);
     const node = nodes.get(groups.get(box.userData.product_id).route_node);
     assert.ok(node, 'cada producto apunta a un nodo existente');
     if (node.clone().sub(face.center).setY(0).dot(face.normal) > 0) facing++;
   }
   // El frente mira hacia el pasillo donde está su nodo (se toleran esquinas).
   assert.ok(facing / boxes.length > 0.9, `frentes hacia el pasillo: ${facing}/${boxes.length}`);
+  for (const [id] of groups) {
+    const productBoxes = boxes.filter(box => box.userData.product_id === id);
+    assert.equal(productBoxes.length, 4);
+    assert.deepEqual(productBoxes.map(box => `${box.userData.row}:${box.userData.column}`).sort(),
+      ['1:1', '1:2', '2:1', '2:2'], 'cuatro cajas en un bloque de dos por dos');
+  }
 });

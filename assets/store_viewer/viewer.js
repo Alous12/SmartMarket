@@ -18,6 +18,57 @@ const products = new Map();              // product_id -> {name, category, cente
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const UP = new THREE.Vector3(0, 1, 0);
+const loading = new AbortController();
+
+function releaseObjects(root) {
+  const geometries = new Set(), materials = new Set(), textures = new Set();
+  root?.traverse(object => {
+    if (object.isInstancedMesh) object.dispose();
+    if (object.geometry) geometries.add(object.geometry);
+    const list = Array.isArray(object.material) ? object.material : [object.material];
+    list.filter(Boolean).forEach(material => materials.add(material));
+  });
+  materials.forEach(material => {
+    Object.values(material).filter(value => value?.isTexture).forEach(texture => textures.add(texture));
+    material.dispose();
+  });
+  textures.forEach(texture => { texture.dispose(); texture.source.data?.close?.(); });
+  geometries.forEach(geometry => geometry.dispose());
+}
+
+function visibilityChanged() {
+  window.smartMarket?.setActive?.(!document.hidden);
+}
+
+function disposeViewer() {
+  if (disposed) return;
+  disposed = true;
+  active = false;
+  animation = null;
+  loading.abort();
+  cancelAnimationFrame(scheduled);
+  scheduled = 0;
+  controls?.dispose();
+  window.removeEventListener('resize', resize);
+  document.removeEventListener('visibilitychange', visibilityChanged);
+  window.removeEventListener('pagehide', disposeViewer);
+  // Las etiquetas son dueñas de su atlas; se liberan una sola vez.
+  labels?.mesh?.removeFromParent();
+  labels?.dispose();
+  releaseObjects(scene);
+  scene?.clear();
+  productBoxes.length = 0;
+  products.clear();
+  renderer?.dispose();
+  renderer?.forceContextLoss();
+  renderer?.domElement.remove();
+  window.smartMarket = {dispose: disposeViewer};
+  renderer = scene = controls = labels = marker = nodesOverlay = null;
+}
+
+// Disponible incluso si se cambia de mapa durante fetch/parseAsync.
+window.smartMarket = {dispose: disposeViewer};
+window.addEventListener('pagehide', disposeViewer);
 
 function publish(fps) {
   const info = renderer.info.render;
@@ -291,9 +342,10 @@ async function setup() {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(50, window.innerWidth / Math.max(window.innerHeight, 1), 0.05, 2000);
   const loader = new GLTFLoader();
-  const response = await fetch('./model.glb');
+  const response = await fetch('./model.glb', {signal: loading.signal});
   if (!response.ok) throw new Error(`No se pudo cargar el modelo (${response.status}).`);
   const gltf = await loader.parseAsync(await response.arrayBuffer(), '');
+  if (disposed) { releaseObjects(gltf.scene); return; }
   if (gltf.animations.length) throw new Error('Esta vista requiere un modelo estático.');
   const optimized = instanceStoreMeshes(gltf.scene);
   scene.add(gltf.scene, optimized.visuals);
@@ -338,7 +390,7 @@ async function setup() {
   installTapDetection(renderer.domElement);
   resize();
   window.addEventListener('resize', resize);
-  document.addEventListener('visibilitychange', () => window.smartMarket.setActive(!document.hidden));
+  document.addEventListener('visibilitychange', visibilityChanged);
 
   window.smartMarket = {
     reset() { selectProduct(null, false); animateTo(home.position, home.target); },
@@ -395,25 +447,7 @@ async function setup() {
       if (!active && scheduled) { cancelAnimationFrame(scheduled); scheduled = 0; }
       if (active) requestRender();
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      cancelAnimationFrame(scheduled);
-      controls.dispose();
-      window.removeEventListener('resize', resize);
-      const geometries = new Set(), materials = new Set();
-      scene.traverse(object => {
-        if (object.isInstancedMesh) object.dispose();
-        if (object.geometry) geometries.add(object.geometry);
-        const list = Array.isArray(object.material) ? object.material : [object.material];
-        list.filter(Boolean).forEach(material => materials.add(material));
-      });
-      geometries.forEach(geometry => geometry.dispose());
-      materials.forEach(material => { material.map?.dispose(); material.dispose(); });
-      labels.dispose();
-      renderer.dispose();
-      renderer.forceContextLoss();
-    },
+    dispose: disposeViewer,
   };
   renderer.render(scene, camera);
   send({
@@ -426,4 +460,6 @@ async function setup() {
   publish(0);
 }
 
-setup().catch(error => send({type: 'error', message: String(error?.stack ?? error)}));
+setup().catch(error => {
+  if (!disposed) send({type: 'error', message: String(error?.stack ?? error)});
+});

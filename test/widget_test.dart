@@ -47,17 +47,41 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('Supermercado Natural'), findsOneWidget);
-    expect(find.text('Natural'), findsOneWidget);
-    expect(find.text('Piloto'), findsOneWidget);
+    expect(find.text(Supermarket.natural.title), findsOneWidget);
+    expect(find.text(Supermarket.natural.shortTitle), findsOneWidget);
+    expect(find.text(Supermarket.piloto.shortTitle), findsOneWidget);
     expect(find.text('Cargando el supermercado…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(repository.requested, [Supermarket.natural]);
 
-    await tester.tap(find.text('Piloto'));
+    await tester.tap(find.text(Supermarket.piloto.shortTitle));
     await tester.pump();
-    expect(find.text('SmartMarket Piloto'), findsOneWidget);
+    expect(find.text(Supermarket.piloto.title), findsOneWidget);
     expect(repository.requested.last, Supermarket.piloto);
+  });
+
+  testWidgets('Volver desde el mapa requiere confirmar y permite continuar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storeModelRepositoryProvider.overrideWithValue(_PendingRepository()),
+          productNamesRepositoryProvider.overrideWithValue(
+            MemoryProductNamesRepository(),
+          ),
+        ],
+        child: const SmartMarketApp(),
+      ),
+    );
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('¿Salir de SmartMarket?'), findsOneWidget);
+    await tester.tap(find.text('Seguir explorando'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('¿Salir de SmartMarket?'), findsNothing);
+    expect(find.text(Supermarket.natural.title), findsOneWidget);
   });
 
   testWidgets('Un error permite volver a cargar el asset', (tester) async {

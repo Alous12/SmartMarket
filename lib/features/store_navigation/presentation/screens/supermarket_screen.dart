@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/store_model.dart';
@@ -20,8 +21,37 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _showMetrics = false;
   bool _panWithOneFinger = false;
   bool _showNodes = false;
+  bool _exitDialogOpen = false;
+  bool _changingStore = false;
 
   SupermarketViewportState? get _viewport => _viewportKey.currentState;
+
+  Future<void> _confirmExit() async {
+    if (_exitDialogOpen) return;
+    _exitDialogOpen = true;
+    final exit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Salir de SmartMarket?'),
+        content: const Text('Puedes seguir explorando el supermercado.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Seguir explorando'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Salir'),
+          ),
+        ],
+      ),
+    );
+    _exitDialogOpen = false;
+    if (exit == true && mounted) {
+      await _viewport?.shutdown();
+      if (mounted) await SystemNavigator.pop();
+    }
+  }
 
   @override
   void dispose() {
@@ -29,14 +59,23 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     super.dispose();
   }
 
-  void _selectStore(Supermarket store) {
-    if (store == ref.read(selectedStoreProvider)) return;
+  Future<void> _selectStore(Supermarket store) async {
+    if (_changingStore || store == ref.read(selectedStoreProvider)) return;
+    _changingStore = true;
+    await _viewport?.shutdown();
+    if (!mounted) return;
     ref.read(selectedStoreProvider.notifier).select(store);
     setState(() {
+      _changingStore = false;
       _viewportKey = GlobalKey();
       _panWithOneFinger = false;
       _showNodes = false;
     });
+  }
+
+  Future<void> _retryViewer() async {
+    await _viewport?.shutdown();
+    if (mounted) setState(() => _viewportKey = GlobalKey());
   }
 
   Future<void> _editProduct(StoreModel model, String productId) async {
@@ -75,93 +114,102 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   Widget build(BuildContext context) {
     final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'SmartMarket',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+    return PopScope<Object?>(
+      canPop: Navigator.of(context).canPop(),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _confirmExit();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'SmartMarket',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              Text(
+                store.title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Productos',
+              icon: const Icon(Icons.inventory_2_outlined),
+              onPressed: model.hasValue
+                  ? () => _openProductList(model.requireValue)
+                  : null,
             ),
-            Text(
-              store.title,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            IconButton(
+              tooltip: 'Rendimiento',
+              isSelected: _showMetrics,
+              selectedIcon: const Icon(Icons.speed),
+              icon: const Icon(Icons.speed_outlined),
+              onPressed: () => setState(() => _showMetrics = !_showMetrics),
             ),
+            const SizedBox(width: 8),
           ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Productos',
-            icon: const Icon(Icons.inventory_2_outlined),
-            onPressed: model.hasValue
-                ? () => _openProductList(model.requireValue)
-                : null,
-          ),
-          IconButton(
-            tooltip: 'Rendimiento',
-            isSelected: _showMetrics,
-            selectedIcon: const Icon(Icons.speed),
-            icon: const Icon(Icons.speed_outlined),
-            onPressed: () => setState(() => _showMetrics = !_showMetrics),
-          ),
-          const SizedBox(width: 8),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<Supermarket>(
-                showSelectedIcon: false,
-                segments: [
-                  for (final option in Supermarket.values)
-                    ButtonSegment(
-                      value: option,
-                      icon: Icon(
-                        option == Supermarket.natural
-                            ? Icons.storefront_outlined
-                            : Icons.store_mall_directory_outlined,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(56),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<Supermarket>(
+                  showSelectedIcon: false,
+                  segments: [
+                    for (final option in Supermarket.values)
+                      ButtonSegment(
+                        value: option,
+                        icon: Icon(
+                          option == Supermarket.natural
+                              ? Icons.storefront_outlined
+                              : Icons.store_mall_directory_outlined,
+                        ),
+                        label: Text(option.shortTitle),
                       ),
-                      label: Text(option.shortTitle),
-                    ),
-                ],
-                selected: {store},
-                onSelectionChanged: (selection) =>
-                    _selectStore(selection.single),
+                  ],
+                  selected: {store},
+                  onSelectionChanged: (selection) =>
+                      _selectStore(selection.single),
+                ),
               ),
             ),
           ),
         ),
-      ),
-      body: SafeArea(
-        top: false,
-        child: model.when(
-          loading: () => const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Cargando el supermercado…'),
-              ],
+        body: SafeArea(
+          top: false,
+          child: model.when(
+            loading: () => const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Cargando el supermercado…'),
+                ],
+              ),
             ),
-          ),
-          error: (error, stack) => Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('No se pudo cargar el modelo del supermercado.'),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => ref.invalidate(storeModelProvider),
-                  child: const Text('Reintentar'),
-                ),
-              ],
+            error: (error, stack) => Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('No se pudo cargar el modelo del supermercado.'),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => ref.invalidate(storeModelProvider),
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
             ),
+            data: (model) => _buildViewer(context, model),
           ),
-          data: (model) => _buildViewer(context, model),
         ),
       ),
     );
@@ -179,7 +227,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           measureContinuously: _showMetrics,
           productNames: names,
           onProductTapped: (id) => _editProduct(model, id),
-          onRetry: () => setState(() => _viewportKey = GlobalKey()),
+          onRetry: _retryViewer,
         ),
         Positioned(
           top: 12,

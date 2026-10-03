@@ -182,5 +182,8 @@ export class ProductLabels {
     this.mesh?.geometry.dispose();
     this.material.dispose();
     this.texture.dispose();
+    this.cells.clear();
+    this.names.clear();
+    this.canvas.width = this.canvas.height = 0;
   }
 }

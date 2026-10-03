@@ -85,7 +85,8 @@ void main() {
     expect(metadata.triangles, inInclusiveRange(1, 80000));
     expect(metadata.routeNodeIds, contains('node_acceso'));
     expect(metadata.productIds, contains('ARROZ_001'));
-    expect(metadata.productIds.length, 135);
+    expect(metadata.productIds.length, 147);
+    expect(metadata.productIds, contains('IMP_001'));
     expect(metadata.routeNodeIds.length, 59);
     final arroz = metadata.products.firstWhere((p) => p.id == 'ARROZ_001');
     expect(arroz.name, 'Arroz-Perlita');
