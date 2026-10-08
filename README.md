@@ -58,12 +58,25 @@ defecto. El puerto HTTP se configura con `PORT` (3000 por defecto). Ejecuta el
 servidor de desarrollo con `npm run dev` o compílalo con `npm run build`. El
 esquema de la tabla está en `backend/src/database/schema.sql`.
 
-Configura `PASSWORD_HASH_KEY` con un secreto aleatorio de al menos 32 bytes.
-Las contraseñas se procesan con HMAC-SHA-256 usando esa clave y después con
-bcrypt (coste 12); ni la contraseña ni el HMAC se almacenan. Mantén la clave
-privada y estable: cambiarla impide verificar las contraseñas registradas.
-Las cuentas que se crearon con el hash anterior scrypt necesitarán restablecer
-su contraseña antes de poder autenticarse.
+Configura `PASSWORD_HASH_KEY` y `AUTH_TOKEN_SECRET` con valores aleatorios,
+privados y distintos de al menos 32 bytes. Las contraseñas se procesan con
+HMAC-SHA-256 usando `PASSWORD_HASH_KEY` y después con bcrypt (coste 12); ni la
+contraseña ni el HMAC se almacenan. Mantén ambas claves privadas y estables:
+cambiar la clave de hash impide verificar las contraseñas registradas y cambiar
+la clave de token invalida las sesiones activas.
+
+### Autenticación
+
+La app inicia en la pantalla de login y guarda el token en el almacenamiento
+local del dispositivo. El token contiene la identidad mínima (`username` y
+`role`) además de los tiempos técnicos de emisión y expiración; no incluye
+correo, contraseña ni otros datos del usuario. Las sesiones vencen a las ocho
+horas.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/api/auth/login` | Iniciar sesión con `email` y `password` |
+| `GET` | `/api/auth/me` | Validar el token `Bearer` y devolver `username` y `role` |
 
 ### API de usuarios
 
@@ -82,16 +95,19 @@ en MySQL usando una cuenta administrativa.
 | `PATCH` | `/api/users/:userId` | Actualizar nombre, apellido, correo, contraseña o estado |
 | `DELETE` | `/api/users/:userId` | Desactivar usuario (baja lógica) |
 
-Las rutas aún no tienen autenticación. No expongas esta API a usuarios o redes
-no confiables hasta agregar autenticación y autorización.
+La app permite crear una cuenta desde su pantalla de registro, pero no incluye
+un panel para listar ni administrar usuarios. Las rutas de `/api/users` siguen
+sin autenticación ni autorización; no las expongas a usuarios o redes no
+confiables.
 
 ### Conectar Flutter con el backend
 
 Flutter consume la API HTTP; el teléfono no se conecta directamente a MySQL.
-La aplicación carga y crea usuarios desde la pantalla **Usuarios**. La URL
-predeterminada es `http://10.0.2.2:3000/api`, que permite al emulador Android
-acceder al servidor que corre en la computadora. Inicia el backend con `npm run
-dev` desde `backend/` y ejecuta Flutter en modo depuración:
+La aplicación ofrece registro y login para acceder al supermercado, sin una
+vista de administración de usuarios. La URL predeterminada es
+`http://10.0.2.2:3000/api`, que permite al emulador Android acceder al servidor
+que corre en la computadora. Inicia el backend con `npm run dev` desde
+`backend/` y ejecuta Flutter en modo depuración:
 
 ```bash
 flutter run

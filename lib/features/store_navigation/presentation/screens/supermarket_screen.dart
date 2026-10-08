@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/product_sheets.dart';
@@ -51,6 +52,18 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     if (exit == true && mounted) {
       await _viewport?.shutdown();
       if (mounted) await SystemNavigator.pop();
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await ref.read(authControllerProvider.notifier).logout();
+      if (mounted) context.goNamed('login');
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cerrar la sesión: $error')),
+      );
     }
   }
 
@@ -147,9 +160,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                   : null,
             ),
             IconButton(
-              tooltip: 'Usuarios',
-              icon: const Icon(Icons.people_outline),
-              onPressed: () => context.pushNamed('users'),
+              tooltip: 'Cerrar sesión',
+              icon: const Icon(Icons.logout),
+              onPressed: _logout,
             ),
             IconButton(
               tooltip: 'Rendimiento',

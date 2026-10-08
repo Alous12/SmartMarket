@@ -5,9 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smartmarket/app/providers/store_providers.dart';
 import 'package:smartmarket/app/smartmarket_app.dart';
+import 'package:smartmarket/features/auth/data/auth_api.dart';
+import 'package:smartmarket/features/auth/presentation/providers/auth_provider.dart';
 import 'package:smartmarket/features/store_navigation/data/repositories/preferences_product_names_repository.dart';
 import 'package:smartmarket/features/store_navigation/domain/entities/store_model.dart';
 import 'package:smartmarket/features/store_navigation/domain/repositories/store_model_repository.dart';
+
+class _AuthenticatedAuthController extends AuthController {
+  @override
+  Future<AuthSession?> build() async => const AuthSession(
+    token: 'test-token',
+    username: 'Ana',
+    role: 'user',
+  );
+}
 
 class _PendingRepository implements StoreModelRepository {
   final result = Completer<StoreModel>();
@@ -38,6 +49,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          authControllerProvider.overrideWith(
+            _AuthenticatedAuthController.new,
+          ),
           storeModelRepositoryProvider.overrideWithValue(repository),
           productNamesRepositoryProvider.overrideWithValue(
             MemoryProductNamesRepository(),
@@ -66,6 +80,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          authControllerProvider.overrideWith(
+            _AuthenticatedAuthController.new,
+          ),
           storeModelRepositoryProvider.overrideWithValue(_PendingRepository()),
           productNamesRepositoryProvider.overrideWithValue(
             MemoryProductNamesRepository(),
@@ -90,6 +107,9 @@ void main() {
       ProviderScope(
         retry: (count, error) => null,
         overrides: [
+          authControllerProvider.overrideWith(
+            _AuthenticatedAuthController.new,
+          ),
           storeModelRepositoryProvider.overrideWithValue(repository),
           productNamesRepositoryProvider.overrideWithValue(
             MemoryProductNamesRepository(),
