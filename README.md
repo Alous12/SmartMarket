@@ -23,7 +23,7 @@ backend/
     services/                # Casos de uso y coordinación de lógica
     repositories/            # Acceso a datos y proveedores externos
     models/                  # Modelos del backend
-    database/                # Conexión y configuración de PostgreSQL
+    database/                # Conexión MySQL y esquema SQL
     middlewares/              # Middleware de Express
     config/                  # Configuración del servidor
     app.ts server.ts          # Creación e inicio de Express
@@ -39,11 +39,10 @@ Modelos_3D/
   scripts/                       # Generador de cajas, etiquetas y nodos del piloto
 ```
 
-La comunicación prevista es **Flutter → Express → PostgreSQL / AI**. Flutter
-consume la API HTTP; Express valida y coordina las peticiones mediante sus
-capas, y los servicios del backend serán el punto de integración con PostgreSQL
-y los servicios Python de `ai/`. Por ahora solo existe la base del servidor
-Express: no hay endpoints, conexión a PostgreSQL ni lógica de IA implementados.
+La comunicación prevista es **Flutter → Express → MySQL / AI**. Flutter consume
+la API HTTP; Express valida y coordina las peticiones mediante sus capas, y los
+servicios del backend son el punto de integración con MySQL y los servicios
+Python de `ai/`.
 
 En Flutter, cada funcionalidad mantiene sus propias capas: `presentation`
 muestra la interfaz, `domain` contiene reglas y contratos, y `data` implementa
@@ -52,10 +51,62 @@ realmente compartidos.
 
 ## Backend
 
-Desde `backend/`, instala dependencias con `npm install`, ejecuta el servidor de
-desarrollo con `npm run dev` o compílalo con `npm run build`. El puerto se
-configura con `PORT` (3000 por defecto). El router `/api` está vacío hasta que se
-añadan funcionalidades.
+Desde `backend/`, instala dependencias con `npm install`, copia `.env.example`
+a `.env` y configura `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`;
+el backend arma la conexión a MySQL con esos valores. `DB_PORT` usa 3306 por
+defecto. El puerto HTTP se configura con `PORT` (3000 por defecto). Ejecuta el
+servidor de desarrollo con `npm run dev` o compílalo con `npm run build`. El
+esquema de la tabla está en `backend/src/database/schema.sql`.
+
+Configura `PASSWORD_HASH_KEY` con un secreto aleatorio de al menos 32 bytes.
+Las contraseñas se procesan con HMAC-SHA-256 usando esa clave y después con
+bcrypt (coste 12); ni la contraseña ni el HMAC se almacenan. Mantén la clave
+privada y estable: cambiarla impide verificar las contraseñas registradas.
+Las cuentas que se crearon con el hash anterior scrypt necesitarán restablecer
+su contraseña antes de poder autenticarse.
+
+### API de usuarios
+
+La API valida los datos, usa consultas parametrizadas y nunca devuelve
+`password_hash`. Los roles admitidos son `user` y `admin`. Al crear usuarios,
+el rol inicial es `user`; la API no permite asignar ni cambiar roles porque
+todavía no hay autenticación/autorización para proteger esas operaciones.
+Mientras no haya autorización, crea o promueve el administrador directamente
+en MySQL usando una cuenta administrativa.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/api/users` | Crear usuario (`name`, `last_name`, `email`, `password`) |
+| `GET` | `/api/users` | Listar usuarios |
+| `GET` | `/api/users/:userId` | Consultar usuario |
+| `PATCH` | `/api/users/:userId` | Actualizar nombre, apellido, correo, contraseña o estado |
+| `DELETE` | `/api/users/:userId` | Desactivar usuario (baja lógica) |
+
+Las rutas aún no tienen autenticación. No expongas esta API a usuarios o redes
+no confiables hasta agregar autenticación y autorización.
+
+### Conectar Flutter con el backend
+
+Flutter consume la API HTTP; el teléfono no se conecta directamente a MySQL.
+La aplicación carga y crea usuarios desde la pantalla **Usuarios**. La URL
+predeterminada es `http://10.0.2.2:3000/api`, que permite al emulador Android
+acceder al servidor que corre en la computadora. Inicia el backend con `npm run
+dev` desde `backend/` y ejecuta Flutter en modo depuración:
+
+```bash
+flutter run
+```
+
+En un teléfono físico, indica la IP local de la computadora (ambos deben estar
+en la misma red):
+
+```bash
+flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api
+```
+
+Reemplaza `192.168.1.20` por la IP de la computadora y permite el puerto HTTP
+configurado por `PORT` en el firewall. Android solo permite HTTP sin cifrar en
+compilaciones de depuración; para distribuir la app, configura una URL HTTPS.
 
 ## Dos supermercados y nombres editables
 
