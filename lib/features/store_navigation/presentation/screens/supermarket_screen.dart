@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
@@ -144,6 +145,11 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               onPressed: model.hasValue
                   ? () => _openProductList(model.requireValue)
                   : null,
+            ),
+            IconButton(
+              tooltip: 'Usuarios',
+              icon: const Icon(Icons.people_outline),
+              onPressed: () => context.pushNamed('users'),
             ),
             IconButton(
               tooltip: 'Rendimiento',
