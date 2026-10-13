@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LOGO DE LA APP: archivo creado para poner el logo de SmartMarket.
+     Define el fondo blanco del icono adaptativo (mipmap-anydpi-v26/ic_launcher.xml). -->
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
 </resources>

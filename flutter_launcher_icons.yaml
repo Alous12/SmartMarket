@@ -1,3 +1,6 @@
+# LOGO DE LA APP: configuración para poner el logo de SmartMarket como icono
+# de la aplicación. Si cambias el logo, reemplaza las imágenes de assets/icon/
+# y ejecuta: dart run flutter_launcher_icons
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: true

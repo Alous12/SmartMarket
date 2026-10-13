@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LOGO DE LA APP: archivo creado para poner el logo de SmartMarket como icono
+     adaptativo (Android 8+). Usa el fondo de values/colors.xml y el primer plano
+     de drawable-*/ic_launcher_foreground.png. Generado con flutter_launcher_icons. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@color/ic_launcher_background"/>
   <foreground>
