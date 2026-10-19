@@ -49,6 +49,9 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  # LOGO DE LA APP: genera los iconos de Android, iOS y macOS a partir de
+  # assets/icon/. Configuración en flutter_launcher_icons.yaml.
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
