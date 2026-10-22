@@ -28,11 +28,11 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else ""
-if not os.path.exists(os.path.join(HERE, "catalogo_nombres.py")):   # Run Script desde Blender
+if not os.path.exists(os.path.join(HERE, "catalogo_nombres.py")):
     HERE = bpy.path.abspath("//scripts")
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-from catalogo_nombres import nombre_para  # noqa: E402
+from catalogo_nombres import nombre_para  
 
 BLEND_DIR = bpy.path.abspath("//") or os.path.dirname(HERE)
 NATURAL_BLEND = os.path.join(BLEND_DIR, "supermercado_natural.blend")
@@ -48,11 +48,10 @@ BOX_MAT = "Cajas / marfil por cara"
 TEXT_MAT = "Grupos / texto"
 ID_PREFIX = "PIL"
 
-# Ancho util de la cara de cada modulo que corresponde a una zona SKU (m)
 MODULE_WIDTH = {"E01": 3.4, "E02": 3.4, "E03": 3.4, "E04": 2.35, "E05": 2.4, "E06": 3.44,
                 "F01": 1.3, "F02": 0.7, "F03": 2.0, "S03i": 2.4, "S01i": 2.4,
                 "S07": 1.8}
-DEFAULT_WIDTH = 2.9      # sectores S01-S08: dos zonas por modulo de 6.1 m
+DEFAULT_WIDTH = 2.9  
 
 
 # ------------------------------------------------------------------------------------
@@ -100,7 +99,6 @@ def _bvh():
 
 
 def _support_heights(bvh, x, y):
-    """Alturas de superficies horizontales (repisas, tapas) en (x, y), de arriba abajo."""
     out, z = [], 3.2
     while z > 0.02:
         hit, normal, _i, _d = bvh.ray_cast(Vector((x, y, z)), Vector((0, 0, -1)), z)
@@ -113,8 +111,6 @@ def _support_heights(bvh, x, y):
 
 
 def _levels(code, supports):
-    """Devuelve (lista de (z_base, alto), columnas, modo, profundidad)."""
-    # Cada bloque conserva cuatro cajas: dos columnas sobre dos niveles reales.
     if code == "E01":
         boards = sorted(s for s in supports if 0.8 <= s <= 1.7)
         assert len(boards) >= 2, f"Repisas E01 no encontradas: {supports}"
@@ -135,14 +131,14 @@ def _levels(code, supports):
         return [(1.026, 0.25), (1.281, 0.25)], 2, "mostrador", 0.36
     if code == "S04":
         return [(0.78, 0.38), (1.30, 0.38)], 2, "puerta", 0.10
-    if code in ("F01", "F02"):          # refrigeradores: frentes sobre la puerta de vidrio
+    if code in ("F01", "F02"):         
         return [(0.60, 0.38), (1.15, 0.38)], 2, "puerta", 0.06
     top = supports[0] if supports else 0.9
-    if code == "F03":                   # vitrina curva: exhibición sobre el respaldo
+    if code == "F03":                  
         return [(1.31, 0.24), (1.56, 0.24)], 2, "respaldo", 0.24
-    if code == "E03":                   # isla baja: usar sus repisas, no la cubierta
+    if code == "E03":                  
         supports = [s for s in supports if s < top - 0.1] + [top]
-    if top >= 1.6 or code == "E03":     # estanterías: dos repisas a la altura de la vista
+    if top >= 1.6 or code == "E03":     
         boards = sorted(s for s in supports if 0.45 <= s <= 1.55)
         pick = []
         for s in boards:
@@ -154,12 +150,11 @@ def _levels(code, supports):
             pick = sorted(pick, key=lambda p: abs(p[0] - 1.0))[:2]
             return sorted(pick), 2, "repisa", 0.30
         return [(0.85, 0.34), (1.24, 0.34)], 2, "repisa", 0.30
-    base = top + 0.005                  # muebles bajos: cajas apiladas encima
+    base = top + 0.005              
     return [(base, 0.25), (base + 0.255, 0.25)], 2, "encima", 0.32
 
 
 def _label(name, text, box, frame, center, width, height, pid):
-    # Editar el texto de una caja actualiza las cuatro etiquetas en Blender.
     cu = bpy.data.curves.get(f"NOMBRE_{pid}")
     if cu is not None:
         ob = bpy.data.objects.new(name, cu)
@@ -171,7 +166,7 @@ def _label(name, text, box, frame, center, width, height, pid):
     cu.resolution_u = 2
     cu.fill_mode = "BOTH"
     cu.size = min(height * 0.62, 0.24)
-    est = 0.56 * cu.size * max(len(text), 1)    # ancho aproximado de Bfont
+    est = 0.56 * cu.size * max(len(text), 1)    
     if est > width * 0.9:
         cu.size *= width * 0.9 / est
     ob = bpy.data.objects.new(name, cu)
@@ -196,7 +191,6 @@ def build(report=True):
     col.objects.link(groot)
     groot.parent = root
 
-    # Nodos de ruta con el mismo esquema que supermercado_natural
     nav = [o for o in bpy.data.objects if o.parent and o.parent.name == "NAV_nodos"]
     for o in nav:
         o["kind"], o["node_id"] = "route_node", o.name
@@ -213,12 +207,10 @@ def build(report=True):
         z["kind"] = "sku_zone"
         code, cat = z["modulo"], z["categoria"]
         ang = z.rotation_euler.z - math.pi / 2
-        n = Vector((math.cos(ang), math.sin(ang), 0.0))           # normal hacia el pasillo
-        t = up.cross(n)                                            # derecha del cliente
+        n = Vector((math.cos(ang), math.sin(ang), 0.0))        
+        t = up.cross(n)                                           
         face = Vector((z.location.x, z.location.y, 0.0)) - n * 0.12
         if code == "S07":
-            # La vitrina delantera es más corta que el panel trasero de este sector.
-            # Sus dos bloques deben quedar dentro de la vitrina, no de la pared.
             siblings = [a for a in zones if a["instancia"] == z["instancia"]]
             midpoint = sum((a.location for a in siblings), Vector()) / len(siblings)
             along = (z.location - midpoint).dot(t)
@@ -248,14 +240,14 @@ def build(report=True):
         slot_id = f"SLOT_{z['instancia']}_{zid:03d}"
         z_mid = (levels[0][0] + levels[-1][0] + levels[-1][1]) / 2
         origin = front - n * (depth / 2) + up * z_mid
-        frame = Matrix((t, -n, up)).transposed()                   # X=t, Y=-n (hacia el mueble), Z=arriba
+        frame = Matrix((t, -n, up)).transposed()                   
         world = Matrix.Translation(origin) @ frame.to_4x4()
 
         slot = bpy.data.objects.new(f"slot_{slot_id}", None)
         slot.empty_display_type, slot.empty_display_size = "PLAIN_AXES", 0.25
         col.objects.link(slot)
         slot.parent = groot
-        slot.matrix_basis = world                                  # PRODUCTOS_grupos está en el origen
+        slot.matrix_basis = world                                
         slot["kind"], slot["slot_id"], slot["shelf_id"] = "product_location", slot_id, z["instancia"]
         slot["route_node"], slot["sku_zone"] = z["nav_node"], z.name
 
@@ -284,7 +276,7 @@ def build(report=True):
                 box.parent = grp
                 box_world = Matrix.Translation(center) @ frame.to_4x4() @ \
                     Matrix.Diagonal((col_w, depth, h, 1.0))
-                box.matrix_basis = world.inverted() @ box_world            # padre: grupo = slot
+                box.matrix_basis = world.inverted() @ box_world           
                 box["kind"], box["product_id"], box["display_name"] = "product_box", pid, name
                 box["row"], box["column"] = li, ci + 1
                 box["label_face"] = "-Y"
@@ -292,7 +284,7 @@ def build(report=True):
                              center, col_w, h, pid)
                 col.objects.link(lab)
                 lab.parent = box
-                lab_frame = Matrix((t, up, n)).transposed()           # texto: X=t, Y=arriba, Z=normal
+                lab_frame = Matrix((t, up, n)).transposed()        
                 lab_world = Matrix.Translation(center + n * (depth / 2 + 0.004)) @ lab_frame.to_4x4()
                 lab.matrix_basis = box_world.inverted() @ lab_world
                 first_label = first_label or lab.name
@@ -309,9 +301,6 @@ def build(report=True):
 def export_glb(path=GLB_OUT):
     sc = _scene()
     exp = bpy.data.collections[COL_EXPORT]
-    # Las etiquetas de texto quedan en el .blend para editarlas en Blender; la app dibuja
-    # sus propias etiquetas sobre la cara frontal de cada caja (eje local -Y de Blender),
-    # así que no se exportan sus mallas (ahorra ~4 MB y ~100 000 triángulos).
     names = {o.name for o in exp.all_objects if o.get("kind") != "editable_label"}
     for o in sc.objects:
         o.select_set(o.name in names)

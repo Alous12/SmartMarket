@@ -1,8 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// Supermercados disponibles en la app. Cada uno es un GLB exportado desde Blender
-/// con el mismo esquema de extras (product_group, product_box, route_node).
 enum Supermarket {
   natural(
     title: 'Supermercado_1',
@@ -26,7 +24,6 @@ enum Supermarket {
   final String assetPath;
 }
 
-/// Portable model data; no dependency on Flutter or the rendering engine.
 class StoreModel {
   const StoreModel({
     required this.store,
@@ -39,7 +36,6 @@ class StoreModel {
   final StoreModelMetadata metadata;
 }
 
-/// Producto editable del modelo (un grupo de cajas con la misma etiqueta).
 class StoreProduct {
   const StoreProduct({
     required this.id,
@@ -49,8 +45,6 @@ class StoreProduct {
   });
 
   final String id;
-
-  /// Nombre original guardado en el .blend / GLB.
   final String name;
   final String category;
   final String routeNode;

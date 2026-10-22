@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
 import '../providers/store_model_provider.dart';
@@ -11,6 +11,10 @@ import '../widgets/product_sheets.dart';
 import '../widgets/render_metrics.dart';
 import '../widgets/route_planner_sheet.dart';
 import '../widgets/supermarket_viewport.dart';
+
+/// Cantidad de paradas de la ruta de demostración mientras no exista la lista
+/// de compras real.
+const _maxRouteStops = 8;
 
 class SupermarketScreen extends ConsumerStatefulWidget {
   const SupermarketScreen({super.key});
@@ -25,6 +29,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _showMetrics = false;
   bool _panWithOneFinger = false;
   bool _showNodes = false;
+  bool _topView = false;
   bool _exitDialogOpen = false;
   bool _changingStore = false;
   StoreRoutePlan? _routePlan;
@@ -165,7 +170,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
     return PopScope<Object?>(
       canPop: Navigator.of(context).canPop(),
@@ -254,13 +258,13 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(),
+                  CircularProgressIndicator(color: AppTheme.green),
                   SizedBox(height: 16),
                   Text('Cargando el supermercado…'),
                 ],
               ),
             ),
-            error: (error, stack) => Center(
+            error: (error, stack) => _CenteredMessage(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -273,14 +277,14 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                 ],
               ),
             ),
-            data: (model) => _buildViewer(context, model),
+            data: (model) => _buildNavigation(context, model),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildViewer(BuildContext context, StoreModel model) {
+  Widget _buildNavigation(BuildContext context, StoreModel model) {
     final names = ref.watch(productNamesProvider).value ?? const {};
     final routePlan = _routePlan;
     return Stack(
@@ -296,68 +300,353 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           onRetry: _retryViewer,
           routePlan: routePlan,
         ),
-        Positioned(
-          top: 12,
-          left: 16,
-          right: 76,
-          child: IgnorePointer(
-            child: Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InstructionCard(
+                  title: current == null
+                      ? 'Dirígete a las cajas'
+                      : 'Dirígete a ${_locationOf(current)}',
+                  subtitle: current == null
+                      ? 'Ya recorriste todas las paradas'
+                      : 'Busca ${nameOf(current)}',
+                  value: '${stops.length - _stopIndex}',
+                  unit: stops.length - _stopIndex == 1 ? 'parada' : 'paradas',
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.touch_app_outlined,
-                      color: Theme.of(context).colorScheme.primary,
+                const SizedBox(height: 20),
+                _MapButton(
+                  tooltip: _topView ? 'Ver en 3D' : 'Vista superior',
+                  onPressed: _toggleTopView,
+                  child: Text(
+                    _topView ? '2D' : '3D',
+                    style: const TextStyle(
+                      color: AppTheme.green,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _panWithOneFinger
-                            ? '1 dedo: mover · 2 dedos: zoom\nToca una caja para renombrarla'
-                            : '1 dedo: girar · 2 dedos: mover y zoom\nToca una caja para renombrarla',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                _MapButton(
+                  tooltip: 'Centrar mapa',
+                  onPressed: () => _viewport?.resetView(),
+                  child: const Icon(Icons.adjust, color: AppTheme.ink),
+                ),
+                const SizedBox(height: 12),
+                _MapButton(
+                  tooltip: 'Opciones del mapa',
+                  onPressed: () => _openMapOptions(model),
+                  child: const Icon(Icons.layers_outlined, color: AppTheme.ink),
+                ),
+                if (_showMetrics) ...[
+                  const SizedBox(height: 12),
+                  ValueListenableBuilder<RenderMetrics>(
+                    valueListenable: _metrics,
+                    builder: (context, metrics, child) => _MetricsCard(
+                      metadata: model.metadata,
+                      metrics: metrics,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
         Positioned(
-          right: 12,
-          top: 12,
-          bottom: _showMetrics ? 238 : 16,
-          child: Align(
-            alignment: Alignment.bottomRight,
-            child: SingleChildScrollView(
-              child: _CameraControls(
-                panWithOneFinger: _panWithOneFinger,
-                showNodes: _showNodes,
-                onZoomIn: () => _viewport?.zoomBy(1.6),
-                onZoomOut: () => _viewport?.zoomBy(0.625),
-                onRotateLeft: () => _viewport?.rotateBy(-45),
-                onRotateRight: () => _viewport?.rotateBy(45),
-                onTopView: () => _viewport?.setView('superior'),
-                onAisleView: () => _viewport?.setView('pasillo'),
-                onReset: () => _viewport?.resetView(),
-                onToggleMode: () {
-                  setState(() => _panWithOneFinger = !_panWithOneFinger);
-                  _viewport?.setOneFingerMode(
-                    _panWithOneFinger ? 'pan' : 'rotate',
-                  );
-                },
-                onToggleNodes: () {
-                  setState(() => _showNodes = !_showNodes);
-                  _viewport?.showNodes(_showNodes);
-                },
-              ),
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _NextStopSheet(
+            stops: stops,
+            index: _stopIndex,
+            collected: _collected,
+            nameOf: nameOf,
+            onSkip: () => _advance(collected: false),
+            onCollected: () => _advance(collected: true),
+            onRestart: _restartRoute,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _locationOf(StoreProduct product) =>
+    product.category.isEmpty ? 'la siguiente parada' : product.category;
+
+String _initials(String name) {
+  final words = name
+      .split(RegExp(r'[\s_]+'))
+      .where((word) => word.isNotEmpty)
+      .toList();
+  if (words.isEmpty) return '?';
+  final letters = words.length == 1
+      ? words.first.substring(0, words.first.length.clamp(0, 2))
+      : '${words[0][0]}${words[1][0]}';
+  return letters.toUpperCase();
+}
+
+class _CenteredMessage extends StatelessWidget {
+  const _CenteredMessage({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(padding: const EdgeInsets.all(24), child: child),
+  );
+}
+
+class _InstructionCard extends StatelessWidget {
+  const _InstructionCard({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.unit,
+  });
+
+  final String title;
+  final String subtitle;
+  final String value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: AppTheme.lime,
+              borderRadius: BorderRadius.circular(16),
             ),
+            child: const Icon(Icons.turn_right, size: 30, color: AppTheme.ink),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 15),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Color(0xFF6BB33F),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                ),
+              ),
+              Text(
+                unit,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapButton extends StatelessWidget {
+  const _MapButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white,
+        elevation: 0,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: Container(
+            width: 50,
+            height: 50,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: AppTheme.cardShadow,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NextStopSheet extends StatelessWidget {
+  const _NextStopSheet({
+    required this.stops,
+    required this.index,
+    required this.collected,
+    required this.nameOf,
+    required this.onSkip,
+    required this.onCollected,
+    required this.onRestart,
+  });
+
+  final List<StoreProduct> stops;
+  final int index;
+  final int collected;
+  final String Function(StoreProduct product) nameOf;
+  final VoidCallback onSkip;
+  final VoidCallback onCollected;
+  final VoidCallback onRestart;
+
+  @override
+  Widget build(BuildContext context) {
+    final finished = index >= stops.length;
+    final current = finished ? null : stops[index];
+    final progress = stops.isEmpty ? 0.0 : index / stops.length;
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AppTheme.track,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      finished
+                          ? 'Ruta completada'
+                          : 'Siguiente parada · ${index + 1} de ${stops.length}',
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.schedule,
+                    size: 16,
+                    color: AppTheme.ink,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$collected de ${stops.length} listos',
+                    style: const TextStyle(
+                      color: AppTheme.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 8,
+                  color: AppTheme.lime,
+                  backgroundColor: AppTheme.track,
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (current != null)
+                _StopProduct(product: current, name: nameOf(current))
+              else
+                const _StopFinished(),
+              const SizedBox(height: 20),
+              SizedBox(
+                height: 60,
+                child: finished
+                    ? FilledButton.icon(
+                        onPressed: onRestart,
+                        icon: const Icon(Icons.replay),
+                        label: const Text('Repetir ruta'),
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: OutlinedButton(
+                              onPressed: onSkip,
+                              child: const Text('Saltar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 4,
+                            child: FilledButton.icon(
+                              onPressed: onCollected,
+                              icon: const Icon(Icons.check),
+                              label: const Text('Ya lo tengo'),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ],
           ),
         ),
         if (routePlan != null)
@@ -408,15 +697,128 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                   _MetricsCard(metadata: model.metadata, metrics: metrics),
             ),
           ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppTheme.ink,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                [
+                  if (product.category.isNotEmpty) product.category,
+                  product.id,
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 15),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppTheme.tint,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  '1 unidad',
+                  style: TextStyle(
+                    color: AppTheme.green,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
 
-class _CameraControls extends StatelessWidget {
-  const _CameraControls({
+class _StopFinished extends StatelessWidget {
+  const _StopFinished();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            color: AppTheme.lime,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(Icons.check, size: 34, color: AppTheme.ink),
+        ),
+        const SizedBox(width: 16),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '¡Listo! Tienes todo',
+                style: TextStyle(
+                  color: AppTheme.ink,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Dirígete a la caja para pagar.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+sealed class _MapAction {
+  const _MapAction();
+}
+
+class _SelectStore extends _MapAction {
+  const _SelectStore(this.store);
+
+  final Supermarket store;
+}
+
+class _OpenProducts extends _MapAction {
+  const _OpenProducts();
+}
+
+class _OpenUsers extends _MapAction {
+  const _OpenUsers();
+}
+
+class _OpenAssistant extends _MapAction {
+  const _OpenAssistant();
+}
+
+/// Herramientas del mapa que no aparecen en el diseño principal: cambio de
+/// supermercado, cámara, nodos, rendimiento y accesos administrativos.
+class _MapOptionsSheet extends StatelessWidget {
+  const _MapOptionsSheet({
+    required this.store,
     required this.panWithOneFinger,
     required this.showNodes,
+    required this.showMetrics,
     required this.onZoomIn,
     required this.onZoomOut,
     required this.onRotateLeft,
@@ -426,10 +828,13 @@ class _CameraControls extends StatelessWidget {
     required this.onReset,
     required this.onToggleMode,
     required this.onToggleNodes,
+    required this.onToggleMetrics,
   });
 
+  final Supermarket store;
   final bool panWithOneFinger;
   final bool showNodes;
+  final bool showMetrics;
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
   final VoidCallback onRotateLeft;
@@ -439,69 +844,124 @@ class _CameraControls extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onToggleMode;
   final VoidCallback onToggleNodes;
+  final VoidCallback onToggleMetrics;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+    const sectionStyle = TextStyle(
+      color: AppTheme.ink,
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+    );
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            IconButton(
-              tooltip: panWithOneFinger
-                  ? 'Un dedo desplaza (tocar para girar)'
-                  : 'Un dedo gira (tocar para desplazar)',
-              isSelected: panWithOneFinger,
-              icon: const Icon(Icons.threed_rotation),
-              selectedIcon: const Icon(Icons.pan_tool_outlined),
-              onPressed: onToggleMode,
+            const Text('Supermercado', style: sectionStyle),
+            const SizedBox(height: 10),
+            SegmentedButton<Supermarket>(
+              showSelectedIcon: false,
+              segments: [
+                for (final option in Supermarket.values)
+                  ButtonSegment(
+                    value: option,
+                    icon: Icon(
+                      option == Supermarket.natural
+                          ? Icons.storefront_outlined
+                          : Icons.store_mall_directory_outlined,
+                    ),
+                    label: Text(option.shortTitle),
+                  ),
+              ],
+              selected: {store},
+              onSelectionChanged: (selection) =>
+                  Navigator.pop(context, _SelectStore(selection.single)),
             ),
-            IconButton(
-              tooltip: 'Acercar',
-              onPressed: onZoomIn,
-              icon: const Icon(Icons.add),
+            const SizedBox(height: 20),
+            const Text('Cámara', style: sectionStyle),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ToolButton(Icons.add, 'Acercar', onZoomIn),
+                _ToolButton(Icons.remove, 'Alejar', onZoomOut),
+                _ToolButton(Icons.rotate_left, 'Girar a la izquierda', onRotateLeft),
+                _ToolButton(Icons.rotate_right, 'Girar a la derecha', onRotateRight),
+                _ToolButton(Icons.map_outlined, 'Vista superior', onTopView),
+                _ToolButton(Icons.directions_walk, 'Vista de pasillo', onAisleView),
+                _ToolButton(Icons.center_focus_strong, 'Centrar mapa', onReset),
+              ],
             ),
-            IconButton(
-              tooltip: 'Alejar',
-              onPressed: onZoomOut,
-              icon: const Icon(Icons.remove),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Un dedo desplaza el mapa'),
+              subtitle: const Text('Si está apagado, un dedo gira la cámara'),
+              value: panWithOneFinger,
+              onChanged: (_) => onToggleMode(),
             ),
-            IconButton(
-              tooltip: 'Girar a la izquierda',
-              onPressed: onRotateLeft,
-              icon: const Icon(Icons.rotate_left),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Mostrar nodos de ruta'),
+              value: showNodes,
+              onChanged: (_) => onToggleNodes(),
             ),
-            IconButton(
-              tooltip: 'Girar a la derecha',
-              onPressed: onRotateRight,
-              icon: const Icon(Icons.rotate_right),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Rendimiento 3D'),
+              value: showMetrics,
+              onChanged: (_) => onToggleMetrics(),
             ),
-            IconButton(
-              tooltip: 'Vista superior',
-              onPressed: onTopView,
-              icon: const Icon(Icons.map_outlined),
+            const Divider(height: 24),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('Productos del mapa'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pop(context, const _OpenProducts()),
             ),
-            IconButton(
-              tooltip: 'Vista a la altura del pasillo',
-              onPressed: onAisleView,
-              icon: const Icon(Icons.directions_walk),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('Asistente SmartMarket'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pop(context, const _OpenAssistant()),
             ),
-            IconButton(
-              tooltip: 'Mostrar nodos de ruta',
-              isSelected: showNodes,
-              icon: const Icon(Icons.hub_outlined),
-              selectedIcon: const Icon(Icons.hub),
-              onPressed: onToggleNodes,
-            ),
-            IconButton(
-              tooltip: 'Centrar mapa',
-              onPressed: onReset,
-              icon: const Icon(Icons.center_focus_strong),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.people_outline),
+              title: const Text('Usuarios'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pop(context, const _OpenUsers()),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ToolButton extends StatelessWidget {
+  const _ToolButton(this.icon, this.tooltip, this.onPressed);
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.outlined(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, color: AppTheme.ink),
+      style: IconButton.styleFrom(
+        side: const BorderSide(color: AppTheme.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        minimumSize: const Size(48, 48),
       ),
     );
   }
