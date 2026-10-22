@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
 import '../providers/store_model_provider.dart';
@@ -12,9 +13,8 @@ import '../widgets/render_metrics.dart';
 import '../widgets/route_planner_sheet.dart';
 import '../widgets/supermarket_viewport.dart';
 
-/// Cantidad de paradas de la ruta de demostración mientras no exista la lista
-/// de compras real.
-const _maxRouteStops = 8;
+/// Lista inicial mientras no exista una lista persistida en la base de datos.
+const _demoRouteStops = 8;
 
 class SupermarketScreen extends ConsumerStatefulWidget {
   const SupermarketScreen({super.key});
@@ -32,8 +32,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _topView = false;
   bool _exitDialogOpen = false;
   bool _changingStore = false;
-  StoreRoutePlan? _routePlan;
-
+  Supermarket? _demoRouteStore;
   SupermarketViewportState? get _viewport => _viewportKey.currentState;
 
   Future<void> _confirmExit() async {
@@ -92,7 +91,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       _viewportKey = GlobalKey();
       _panWithOneFinger = false;
       _showNodes = false;
-      _routePlan = null;
+      _demoRouteStore = null;
+      ref.read(navigationSessionProvider.notifier).clear();
     });
   }
 
@@ -145,20 +145,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       if (model.metadata.routeNodes.isEmpty) {
         throw StateError('El GLB no contiene nodos de ruta.');
       }
-      final startNode = model.metadata.routeNodes.firstWhere(
-        (node) => RegExp(
-          r'acceso|entrada|inicio',
-          caseSensitive: false,
-        ).hasMatch(node.id),
-        orElse: () => model.metadata.routeNodes.first,
-      );
-      final plan = const StoreRoutePlanner().plan(
-        routeNodes: model.metadata.routeNodes,
-        products: model.metadata.products,
-        startNodeId: startNode.id,
-        productIds: productIds,
-      );
-      setState(() => _routePlan = plan);
+      final plan = _planRoute(model, productIds);
+      ref.read(navigationSessionProvider.notifier).start(plan);
     } on StateError catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se pudo calcular la ruta: $error')),
@@ -166,10 +154,140 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
-  void _clearRoute() => setState(() => _routePlan = null);
+  StoreRoutePlan _planRoute(
+    StoreModel model,
+    List<String> productIds, {
+    String? startNodeId,
+  }) {
+    final resolvedStartNodeId = startNodeId ??
+        model.metadata.routeNodes
+            .firstWhere(
+              (node) => RegExp(
+                r'acceso|entrada|inicio',
+                caseSensitive: false,
+              ).hasMatch(node.id),
+              orElse: () => model.metadata.routeNodes.first,
+            )
+            .id;
+    return const StoreRoutePlanner().plan(
+      routeNodes: model.metadata.routeNodes,
+      products: model.metadata.products,
+      startNodeId: resolvedStartNodeId,
+      productIds: productIds,
+    );
+  }
+
+  void _advanceNavigation(StoreModel model, {required bool collected}) {
+    final session = ref.read(navigationSessionProvider);
+    final origin = session.current;
+    if (origin == null) return;
+    final notifier = ref.read(navigationSessionProvider.notifier);
+    notifier.advance(collected: collected);
+    final next = ref.read(navigationSessionProvider).current;
+    if (next == null) return;
+    try {
+      // Se vuelve a ejecutar A* desde la parada realmente visitada, no desde
+      // la entrada ni desde una coordenada de demostración.
+      notifier.showCurrentLeg(
+        _planRoute(model, [next.id], startNodeId: origin.routeNode),
+      );
+    } on StateError {
+      // La tarjeta sigue mostrando la siguiente parada aunque el GLB tenga
+      // una conexión incompleta.
+    }
+  }
+
+  void _startDemoRouteIfNeeded(StoreModel model) {
+    if (_demoRouteStore == model.store || model.metadata.routeNodes.isEmpty) {
+      return;
+    }
+    _demoRouteStore = model.store;
+    final productIds = model.metadata.products
+        .where((product) => product.routeNode.isNotEmpty)
+        .take(_demoRouteStops)
+        .map((product) => product.id)
+        .toList(growable: false);
+    if (productIds.isEmpty) return;
+    try {
+      final plan = _planRoute(model, productIds);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || ref.read(selectedStoreProvider) != model.store) return;
+        ref.read(navigationSessionProvider.notifier).start(plan);
+      });
+    } on StateError {
+      // El planificador manual conserva su mensaje de error. La demo no debe
+      // impedir visualizar un modelo que todavía no tenga ruta completa.
+    }
+  }
+
+  void _showTopView() {
+    setState(() => _topView = true);
+    _viewport?.setView('superior');
+  }
+
+  void _showAisleView() {
+    setState(() => _topView = false);
+    _viewport?.setView('pasillo');
+  }
+
+  void _toggleTopView() {
+    if (_topView) {
+      _showAisleView();
+    } else {
+      _showTopView();
+    }
+  }
+
+  Future<void> _openMapOptions(StoreModel model) async {
+    final action = await showModalBottomSheet<_MapAction>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _MapOptionsSheet(
+        store: model.store,
+        panWithOneFinger: _panWithOneFinger,
+        showNodes: _showNodes,
+        showMetrics: _showMetrics,
+        onZoomIn: () => _viewport?.zoomBy(1.2),
+        onZoomOut: () => _viewport?.zoomBy(1 / 1.2),
+        onRotateLeft: () => _viewport?.rotateBy(-45),
+        onRotateRight: () => _viewport?.rotateBy(45),
+        onTopView: _showTopView,
+        onAisleView: _showAisleView,
+        onReset: () => _viewport?.resetView(),
+        onToggleMode: () {
+          setState(() => _panWithOneFinger = !_panWithOneFinger);
+          _viewport?.setOneFingerMode(_panWithOneFinger ? 'pan' : 'rotate');
+        },
+        onToggleNodes: () {
+          setState(() => _showNodes = !_showNodes);
+          _viewport?.showNodes(_showNodes);
+        },
+        onToggleMetrics: () =>
+            setState(() => _showMetrics = !_showMetrics),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case _SelectStore(:final store):
+        await _selectStore(store);
+        break;
+      case _OpenProducts():
+        await _openProductList(model);
+        break;
+      case _OpenUsers():
+        await context.pushNamed('users');
+        break;
+      case _OpenAssistant():
+        await context.pushNamed('assistant');
+        break;
+    }
+  }
+
+  void _clearRoute() => ref.read(navigationSessionProvider.notifier).clear();
 
   @override
   Widget build(BuildContext context) {
+    final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
     return PopScope<Object?>(
       canPop: Navigator.of(context).canPop(),
@@ -285,8 +403,13 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   }
 
   Widget _buildNavigation(BuildContext context, StoreModel model) {
+    _startDemoRouteIfNeeded(model);
     final names = ref.watch(productNamesProvider).value ?? const {};
-    final routePlan = _routePlan;
+    final session = ref.watch(navigationSessionProvider);
+    final stops = session.stops;
+    final current = session.current;
+    String nameOf(StoreProduct product) => names[product.id] ?? product.name;
+    final routePlan = session.remainingPlan;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -298,7 +421,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           productNames: names,
           onProductTapped: (id) => _editProduct(model, id),
           onRetry: _retryViewer,
-          routePlan: routePlan,
+          routePlan: session.remainingPlan,
         ),
         SafeArea(
           bottom: false,
@@ -314,8 +437,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                   subtitle: current == null
                       ? 'Ya recorriste todas las paradas'
                       : 'Busca ${nameOf(current)}',
-                  value: '${stops.length - _stopIndex}',
-                  unit: stops.length - _stopIndex == 1 ? 'parada' : 'paradas',
+                  value: '${session.pending}',
+                  unit: session.pending == 1 ? 'parada' : 'paradas',
                 ),
                 const SizedBox(height: 20),
                 _MapButton(
@@ -362,14 +485,63 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           bottom: 0,
           child: _NextStopSheet(
             stops: stops,
-            index: _stopIndex,
-            collected: _collected,
+            index: session.nextProductIndex,
+            collected: session.collected,
             nameOf: nameOf,
-            onSkip: () => _advance(collected: false),
-            onCollected: () => _advance(collected: true),
-            onRestart: _restartRoute,
+            onSkip: () => _advanceNavigation(model, collected: false),
+            onCollected: () => _advanceNavigation(model, collected: true),
+            onRestart: () =>
+                ref.read(navigationSessionProvider.notifier).restart(),
           ),
         ),
+        if (routePlan != null)
+          Positioned(
+            bottom: _showMetrics ? 238 : 16,
+            left: 16,
+            right: 76,
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.route,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${routePlan.products.length} paradas · '
+                        '${routePlan.distance.toStringAsFixed(1)} unidades · '
+                        '${routePlan.products.take(2).map(nameOf).join(', ')}'
+                        '${routePlan.products.length > 2 ? '…' : ''}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Quitar ruta',
+                      onPressed: _clearRoute,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (_showMetrics)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            right: 16,
+            child: ValueListenableBuilder<RenderMetrics>(
+              valueListenable: _metrics,
+              builder: (context, metrics, child) =>
+                  _MetricsCard(metadata: model.metadata, metrics: metrics),
+            ),
+          ),
       ],
     );
   }
@@ -385,7 +557,7 @@ String _initials(String name) {
       .toList();
   if (words.isEmpty) return '?';
   final letters = words.length == 1
-      ? words.first.substring(0, words.first.length.clamp(0, 2))
+      ? words.first.substring(0, words.first.length.clamp(0, 2).toInt())
       : '${words[0][0]}${words[1][0]}';
   return letters.toUpperCase();
 }
@@ -649,52 +821,35 @@ class _NextStopSheet extends StatelessWidget {
             ],
           ),
         ),
-        if (routePlan != null)
-          Positioned(
-            bottom: _showMetrics ? 238 : 16,
-            left: 16,
-            right: 76,
-            child: Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.route,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '${routePlan.products.length} paradas · '
-                        '${routePlan.distance.toStringAsFixed(1)} unidades · '
-                        '${routePlan.products.take(2).map((product) => names[product.id] ?? product.name).join(', ')}'
-                        '${routePlan.products.length > 2 ? '…' : ''}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Quitar ruta',
-                      onPressed: _clearRoute,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      ),
+    );
+  }
+}
+
+class _StopProduct extends StatelessWidget {
+  const _StopProduct({required this.product, required this.name});
+
+  final StoreProduct product;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppTheme.lime,
+            borderRadius: BorderRadius.circular(18),
           ),
-        if (_showMetrics)
-          Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: ValueListenableBuilder<RenderMetrics>(
-              valueListenable: _metrics,
-              builder: (context, metrics, child) =>
-                  _MetricsCard(metadata: model.metadata, metrics: metrics),
+          child: Text(
+            _initials(name),
+            style: const TextStyle(
+              color: AppTheme.ink,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),

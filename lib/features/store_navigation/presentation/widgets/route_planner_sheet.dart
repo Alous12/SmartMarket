@@ -35,16 +35,8 @@ class _RoutePlannerSheet extends StatefulWidget {
 }
 
 class _RoutePlannerSheetState extends State<_RoutePlannerSheet> {
-  static const _pizzaIngredients = <(String, List<String>)>[
-    ('Queso', ['queso', 'mozzarella']),
-    ('Salsa de tomate', ['tomate', 'jitomate']),
-    ('Harina o masa', ['harina', 'masa']),
-    ('Pepperoni', ['pepperoni', 'salami']),
-  ];
-
   final _selectedIds = <String>{};
   String _query = '';
-  int? _pizzaMatches;
 
   String _normalize(String value) => value
       .toLowerCase()
@@ -53,36 +45,6 @@ class _RoutePlannerSheetState extends State<_RoutePlannerSheet> {
       .replaceAll(RegExp('[íìï]'), 'i')
       .replaceAll(RegExp('[óòö]'), 'o')
       .replaceAll(RegExp('[úùü]'), 'u');
-
-  void _loadPizzaMock() {
-    final selected = <String>{};
-    var matched = 0;
-    for (final ingredient in _pizzaIngredients) {
-      StoreProduct? product;
-      for (final candidate in widget.products) {
-        if (!selected.contains(candidate.id) &&
-            candidate.routeNode.isNotEmpty &&
-            ingredient.$2.any(
-              (term) => _normalize(
-                '${widget.productNames[candidate.id] ?? candidate.name} '
-                '${candidate.category}',
-              ).contains(term),
-            )) {
-          product = candidate;
-          break;
-        }
-      }
-      if (product == null) continue;
-      matched++;
-      selected.add(product.id);
-    }
-    setState(() {
-      _selectedIds
-        ..clear()
-        ..addAll(selected);
-      _pizzaMatches = matched;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +74,7 @@ class _RoutePlannerSheetState extends State<_RoutePlannerSheet> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    Text('Lista local demo · inicio desde la entrada'),
+                    Text('Selecciona productos · inicio desde la entrada'),
                   ],
                 ),
               ),
@@ -124,30 +86,6 @@ class _RoutePlannerSheetState extends State<_RoutePlannerSheet> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _loadPizzaMock,
-              icon: const Icon(Icons.local_pizza_outlined),
-              label: const Text('Cargar ingredientes de pizza (demo)'),
-            ),
-          ),
-        ),
-        if (_pizzaMatches != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Encontrados $_pizzaMatches de ${_pizzaIngredients.length} '
-                'ingredientes en este modelo. Puedes completar la lista '
-                'seleccionando productos.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: TextField(
@@ -183,7 +121,6 @@ class _RoutePlannerSheetState extends State<_RoutePlannerSheet> {
                         } else {
                           _selectedIds.remove(product.id);
                         }
-                        _pizzaMatches = null;
                       })
                     : null,
                 title: Text(name),
