@@ -62,6 +62,18 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
+  Future<void> _logout() async {
+    try {
+      await ref.read(authControllerProvider.notifier).logout();
+      if (mounted) context.goNamed('login');
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cerrar la sesión: $error')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _metrics.dispose();

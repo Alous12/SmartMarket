@@ -13,6 +13,10 @@ export interface User {
   updated_by_user_id: number | null;
 }
 
+export interface UserCredentials extends User {
+  password_hash: string;
+}
+
 export interface CreateUserInput {
   name: string;
   last_name: string;

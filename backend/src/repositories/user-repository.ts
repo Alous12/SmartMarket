@@ -1,9 +1,14 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { pool } from '../database/pool.js';
-import type { UpdateUserInput, User } from '../models/user.js';
+import type {
+  UpdateUserInput,
+  User,
+  UserCredentials,
+} from '../models/user.js';
 
 interface UserRow extends RowDataPacket, User {}
+interface UserCredentialsRow extends RowDataPacket, UserCredentials {}
 
 const publicUserColumns = `
   user_id,
@@ -49,6 +54,21 @@ export async function findById(userId: number): Promise<User | null> {
     [userId],
   );
   return rows.length > 0 ? toUser(rows[0]) : null;
+}
+
+export async function findCredentialsByEmail(
+  email: string,
+): Promise<UserCredentials | null> {
+  const [rows] = await pool.execute<UserCredentialsRow[]>(
+    `SELECT ${publicUserColumns}, password_hash
+     FROM users WHERE email = ? LIMIT 1`,
+    [email],
+  );
+  if (rows.length === 0) return null;
+  return {
+    ...toUser(rows[0]),
+    password_hash: rows[0].password_hash,
+  };
 }
 
 export async function create(

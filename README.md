@@ -49,6 +49,23 @@ muestra la interfaz, `domain` contiene reglas y contratos, y `data` implementa
 el acceso a datos. `app/` conecta la aplicación y `core/` contiene elementos
 realmente compartidos.
 
+### Flujo de las solicitudes
+
+```mermaid
+flowchart LR
+  U[Usuario] --> F[App Flutter]
+  F -->|HTTP: /api/auth y /api/users| R[Rutas Express]
+  R --> C[Controladores]
+  C --> S[Servicios]
+  S --> Repo[Repositorios]
+  Repo -->|Consultas SQL| DB[(MySQL)]
+  DB --> Repo
+  Repo --> S
+  S --> C
+  C -->|Respuesta JSON| F
+  F -->|Guarda el token de sesión| T[(Almacenamiento local)]
+```
+
 ## Backend
 
 Desde `backend/`, instala dependencias con `npm install`, copia `.env.example`
@@ -58,12 +75,71 @@ defecto. El puerto HTTP se configura con `PORT` (3000 por defecto). Ejecuta el
 servidor de desarrollo con `npm run dev` o compílalo con `npm run build`. El
 esquema de la tabla está en `backend/src/database/schema.sql`.
 
-Configura `PASSWORD_HASH_KEY` con un secreto aleatorio de al menos 32 bytes.
-Las contraseñas se procesan con HMAC-SHA-256 usando esa clave y después con
-bcrypt (coste 12); ni la contraseña ni el HMAC se almacenan. Mantén la clave
-privada y estable: cambiarla impide verificar las contraseñas registradas.
-Las cuentas que se crearon con el hash anterior scrypt necesitarán restablecer
-su contraseña antes de poder autenticarse.
+Configura `PASSWORD_HASH_KEY` y `AUTH_TOKEN_SECRET` con valores aleatorios,
+privados y distintos de al menos 32 bytes. Las contraseñas se procesan con
+HMAC-SHA-256 usando `PASSWORD_HASH_KEY` y después con bcrypt (coste 12); ni la
+contraseña ni el HMAC se almacenan. Mantén ambas claves privadas y estables:
+cambiar la clave de hash impide verificar las contraseñas registradas y cambiar
+la clave de token invalida las sesiones activas.
+
+### Inicializar en Windows
+
+Abre PowerShell en la raíz del repositorio. Asegúrate de tener Node.js, MySQL y
+Flutter instalados, e inicia el servicio de MySQL. En la primera configuración,
+crea la base de datos e importa el esquema (estos comandos solicitan la
+contraseña de MySQL):
+
+```powershell
+mysql -h 127.0.0.1 -P 3306 -u root -p -e "CREATE DATABASE IF NOT EXISTS smartmarket;"
+cmd /c "mysql -h 127.0.0.1 -P 3306 -u root -p smartmarket < backend\src\database\schema.sql"
+```
+
+Prepara el archivo de configuración del backend. Edita `.env` para que coincida
+con tu instalación de MySQL y reemplaza las dos claves de ejemplo por valores
+aleatorios, privados y distintos:
+
+```powershell
+if (-not (Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
+notepad .\backend\.env
+Set-Location .\backend
+npm ci
+npm run dev
+```
+
+Deja esa terminal abierta mientras usas la app. En una segunda terminal de
+PowerShell, desde la raíz del repositorio, instala las dependencias de Flutter y
+elige un emulador Android disponible:
+
+```powershell
+flutter doctor
+flutter pub get
+flutter devices
+flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
+```
+
+Sustituye `emulator-5554` por el ID mostrado por `flutter devices`. Para un
+teléfono Android conectado a la misma red Wi-Fi que la computadora, usa la IP
+local de Windows en lugar de `10.0.2.2`, permite el puerto `3000` en el firewall
+y ejecuta:
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api
+```
+
+Reemplaza `192.168.1.20` por la IP de la computadora que ejecuta el backend.
+
+### Autenticación
+
+La app inicia en la pantalla de login y guarda el token en el almacenamiento
+local del dispositivo. El token contiene la identidad mínima (`username` y
+`role`) además de los tiempos técnicos de emisión y expiración; no incluye
+correo, contraseña ni otros datos del usuario. Las sesiones vencen a las ocho
+horas.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/api/auth/login` | Iniciar sesión con `email` y `password` |
+| `GET` | `/api/auth/me` | Validar el token `Bearer` y devolver `username` y `role` |
 
 ### API de usuarios
 
@@ -82,16 +158,19 @@ en MySQL usando una cuenta administrativa.
 | `PATCH` | `/api/users/:userId` | Actualizar nombre, apellido, correo, contraseña o estado |
 | `DELETE` | `/api/users/:userId` | Desactivar usuario (baja lógica) |
 
-Las rutas aún no tienen autenticación. No expongas esta API a usuarios o redes
-no confiables hasta agregar autenticación y autorización.
+La app permite crear una cuenta desde su pantalla de registro, pero no incluye
+un panel para listar ni administrar usuarios. Las rutas de `/api/users` siguen
+sin autenticación ni autorización; no las expongas a usuarios o redes no
+confiables.
 
 ### Conectar Flutter con el backend
 
 Flutter consume la API HTTP; el teléfono no se conecta directamente a MySQL.
-La aplicación carga y crea usuarios desde la pantalla **Usuarios**. La URL
-predeterminada es `http://10.0.2.2:3000/api`, que permite al emulador Android
-acceder al servidor que corre en la computadora. Inicia el backend con `npm run
-dev` desde `backend/` y ejecuta Flutter en modo depuración:
+La aplicación ofrece registro y login para acceder al supermercado, sin una
+vista de administración de usuarios. La URL predeterminada es
+`http://10.0.2.2:3000/api`, que permite al emulador Android acceder al servidor
+que corre en la computadora. Inicia el backend con `npm run dev` desde
+`backend/` y ejecuta Flutter en modo depuración:
 
 ```bash
 flutter run
@@ -107,6 +186,42 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api
 Reemplaza `192.168.1.20` por la IP de la computadora y permite el puerto HTTP
 configurado por `PORT` en el firewall. Android solo permite HTTP sin cifrar en
 compilaciones de depuración; para distribuir la app, configura una URL HTTPS.
+
+### Inicializar en iOS
+
+Para compilar o ejecutar Flutter en iOS necesitas una Mac con Xcode; no es
+posible compilar la app para iOS desde Windows. En la Mac, desde la raíz del
+repositorio, acepta las licencias de Xcode, instala los paquetes de Flutter e
+inicia el simulador:
+
+```bash
+flutter doctor
+sudo xcodebuild -runFirstLaunch
+sudo xcodebuild -license accept
+flutter pub get
+open -a Simulator
+flutter devices
+```
+
+Usa el ID del simulador o del iPhone que aparezca en `flutter devices`. Si el
+backend corre en la misma Mac que el simulador, inicia `npm run dev` en otra
+terminal y ejecuta:
+
+```bash
+flutter run -d <ID_DEL_SIMULADOR> --dart-define=API_BASE_URL=http://127.0.0.1:3000/api
+```
+
+Para un iPhone físico, o si el backend corre en una PC Windows, ambos
+dispositivos deben estar en la misma red. Cambia `192.168.1.20` por la IP local
+de la computadora que ejecuta el backend, permite el puerto HTTP en su firewall
+y usa esa dirección:
+
+```bash
+flutter run -d <ID_DEL_IPHONE> --dart-define=API_BASE_URL=http://192.168.1.20:3000/api
+```
+
+Reemplaza los valores de ejemplo por los IDs y la IP reales. La configuración y
+el rendimiento de iOS todavía no están validados en este proyecto.
 
 ## Dos supermercados y nombres editables
 
