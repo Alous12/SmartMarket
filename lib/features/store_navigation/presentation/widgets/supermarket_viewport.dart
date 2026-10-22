@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/store_route_planner.dart';
 import 'local_viewer_server.dart';
 import 'render_metrics.dart';
 
@@ -17,6 +18,7 @@ class SupermarketViewport extends StatefulWidget {
     required this.onRetry,
     this.productNames = const {},
     this.onProductTapped,
+    this.routePlan,
   });
 
   final StoreModel model;
@@ -29,6 +31,7 @@ class SupermarketViewport extends StatefulWidget {
 
   /// Se llama al tocar una caja de producto en la vista 3D.
   final ValueChanged<String>? onProductTapped;
+  final StoreRoutePlan? routePlan;
 
   @override
   State<SupermarketViewport> createState() => SupermarketViewportState();
@@ -121,6 +124,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _command('setActive', _active);
           _command('setOneFingerMode', _oneFingerMode);
           _command('showNodes', _showNodes);
+          _sendRoute();
           _sendNames(widget.productNames, const {});
         case 'metrics':
           final metrics = RenderMetrics(
@@ -186,6 +190,20 @@ class SupermarketViewportState extends State<SupermarketViewport>
     _command('showNodes', value);
   }
 
+  void _sendRoute() {
+    final plan = widget.routePlan;
+    _command(
+      'showRoute',
+      plan == null
+          ? null
+          : {
+              'nodeIds': plan.nodeIds,
+              'stopNodeIds': plan.stopNodeIds,
+            },
+    );
+    if (plan != null) _command('setView', 'superior');
+  }
+
   /// Envía los nombres nuevos y restaura los originales de los que se quitaron.
   void _sendNames(Map<String, String> names, Map<String, String> previous) {
     final original = {
@@ -218,6 +236,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
     if (!identical(oldWidget.productNames, widget.productNames)) {
       _sendNames(widget.productNames, oldWidget.productNames);
     }
+    if (oldWidget.routePlan != widget.routePlan) _sendRoute();
   }
 
   @override
