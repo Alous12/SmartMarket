@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// Supermercados disponibles en la app. Cada uno es un GLB exportado desde Blender
@@ -55,6 +56,29 @@ class StoreProduct {
   final String routeNode;
 }
 
+class StoreRouteNode {
+  const StoreRouteNode({
+    required this.id,
+    required this.x,
+    required this.y,
+    required this.z,
+    required this.neighbors,
+  });
+
+  final String id;
+  final double x;
+  final double y;
+  final double z;
+  final List<String> neighbors;
+
+  double distanceTo(StoreRouteNode other) {
+    final dx = x - other.x;
+    final dy = y - other.y;
+    final dz = z - other.z;
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+}
+
 class StoreModelMetadata {
   const StoreModelMetadata({
     required this.byteLength,
@@ -63,6 +87,7 @@ class StoreModelMetadata {
     required this.materials,
     required this.routeNodeIds,
     required this.productIds,
+    this.routeNodes = const [],
     this.products = const [],
   });
 
@@ -72,5 +97,6 @@ class StoreModelMetadata {
   final int materials;
   final List<String> routeNodeIds;
   final List<String> productIds;
+  final List<StoreRouteNode> routeNodes;
   final List<StoreProduct> products;
 }
