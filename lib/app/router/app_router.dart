@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/assistant/presentation/screens/assistant_screen.dart';
 import '../../features/store_navigation/presentation/screens/supermarket_screen.dart';
 import '../../features/users/presentation/screens/users_screen.dart';
 
@@ -17,6 +18,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/usuarios',
         name: 'users',
         builder: (context, state) => const UsersScreen(),
+      ),
+      GoRoute(
+        path: '/asistente',
+        name: 'assistant',
+        builder: (context, state) => const AssistantScreen(),
       ),
     ],
   );

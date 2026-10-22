@@ -191,6 +191,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         await _openProductList(model);
       case _OpenUsers():
         await context.pushNamed('users');
+      case _OpenAssistant():
+        await context.pushNamed('assistant');
     }
   }
 
@@ -744,6 +746,10 @@ class _OpenUsers extends _MapAction {
   const _OpenUsers();
 }
 
+class _OpenAssistant extends _MapAction {
+  const _OpenAssistant();
+}
+
 /// Herramientas del mapa que no aparecen en el diseño principal: cambio de
 /// supermercado, cámara, nodos, rendimiento y accesos administrativos.
 class _MapOptionsSheet extends StatelessWidget {
@@ -856,6 +862,13 @@ class _MapOptionsSheet extends StatelessWidget {
               title: const Text('Productos del mapa'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pop(context, const _OpenProducts()),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('Asistente SmartMarket'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.pop(context, const _OpenAssistant()),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
