@@ -5,7 +5,7 @@ import {instanceStoreMeshes} from './instancing.js';
 import {ProductLabels, boxFrontFace as boxFaceOf} from './labels.js';
 
 const send = data => window.StoreViewer?.postMessage(JSON.stringify(data));
-let renderer, scene, camera, controls, labels, marker, nodesOverlay;
+let renderer, scene, camera, controls, labels, marker, nodesOverlay, routeOverlay;
 let active = true, continuous = false, disposed = false, scheduled = 0;
 let frames = 0, frameStart = performance.now(), lastPublished = 0;
 let animation = null;
@@ -63,7 +63,7 @@ function disposeViewer() {
   renderer?.forceContextLoss();
   renderer?.domElement.remove();
   window.smartMarket = {dispose: disposeViewer};
-  renderer = scene = controls = labels = marker = nodesOverlay = null;
+  renderer = scene = controls = labels = marker = nodesOverlay = routeOverlay = null;
 }
 
 // Disponible incluso si se cambia de mapa durante fetch/parseAsync.
@@ -293,6 +293,89 @@ function buildNodesOverlay(root) {
   return group;
 }
 
+function buildRouteOverlay(root) {
+  const positions = new Map();
+  root.traverse(object => {
+    if (object.userData.kind !== 'route_node') return;
+    const id = String(object.userData.node_id ?? object.name);
+    positions.set(id, object.getWorldPosition(new THREE.Vector3()));
+  });
+  const group = new THREE.Group();
+  group.name = 'Ruta calculada';
+  group.visible = false;
+  scene.add(group);
+  return {group, positions};
+}
+
+function showRoute(route) {
+  if (!routeOverlay) return false;
+  const {group, positions} = routeOverlay;
+  group.visible = false;
+  const geometries = new Set();
+  const materials = new Set();
+  for (const object of [...group.children]) {
+    group.remove(object);
+    if (object.geometry) geometries.add(object.geometry);
+    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+    objectMaterials.filter(Boolean).forEach(material => materials.add(material));
+  }
+  geometries.forEach(geometry => geometry.dispose());
+  materials.forEach(material => material.dispose());
+  const nodeIds = Array.isArray(route?.nodeIds) ? route.nodeIds.map(String) : [];
+  if (!nodeIds.length) {
+    group.visible = false;
+    requestRender();
+    return true;
+  }
+  const points = nodeIds.map(id => positions.get(id));
+  if (points.some(point => !point)) return false;
+  if (points.length > 1) {
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        points.map(point => point.clone().setY(point.y + 0.16)),
+      ),
+      new THREE.LineBasicMaterial({
+        color: 0xf06435,
+        toneMapped: false,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+      }),
+    );
+    line.renderOrder = 4;
+    group.add(line);
+  }
+
+  const stopIds = new Set((route.stopNodeIds ?? []).map(String));
+  const startMaterial = new THREE.MeshBasicMaterial({
+    color: 0x269b65,
+    toneMapped: false,
+    depthTest: false,
+  });
+  const stopMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf06435,
+    toneMapped: false,
+    depthTest: false,
+  });
+  const sphereGeometry = new THREE.SphereGeometry(0.25, 14, 10);
+  const startPoint = points[0];
+  const startMarker = new THREE.Mesh(sphereGeometry, startMaterial);
+  startMarker.position.copy(startPoint).setY(startPoint.y + 0.25);
+  startMarker.renderOrder = 5;
+  group.add(startMarker);
+  for (const id of stopIds) {
+    const point = positions.get(id);
+    if (!point) continue;
+    const marker = new THREE.Mesh(sphereGeometry, stopMaterial);
+    marker.position.copy(point).setY(point.y + 0.25);
+    marker.renderOrder = 5;
+    group.add(marker);
+  }
+  group.visible = true;
+  requestRender();
+  return true;
+}
+
 // ---------------------------------------------------------------- toque
 function installTapDetection(element) {
   const downs = new Map();
@@ -356,6 +439,7 @@ async function setup() {
   collectProducts(gltf.scene);
   marker = buildMarker();
   nodesOverlay = buildNodesOverlay(gltf.scene);
+  routeOverlay = buildRouteOverlay(gltf.scene);
 
   // Vista inicial: desde la entrada (frente, +Z en glTF), en perspectiva como Blender.
   const distance = fitDistance(radius) * 0.8;
@@ -433,6 +517,7 @@ async function setup() {
     setProductName(id, name) { return this.setProductNames({[id]: name}); },
     selectProduct(id, focus = true) { return selectProduct(id == null ? null : String(id), focus); },
     showNodes(value) { nodesOverlay.visible = Boolean(value); requestRender(); },
+    showRoute(route) { return showRoute(route); },
     setContinuous(value) {
       continuous = Boolean(value);
       frames = 0;

@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/store_route_planner.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/product_sheets.dart';
 import '../widgets/render_metrics.dart';
+import '../widgets/route_planner_sheet.dart';
 import '../widgets/supermarket_viewport.dart';
 
 class SupermarketScreen extends ConsumerStatefulWidget {
@@ -25,6 +27,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _showNodes = false;
   bool _exitDialogOpen = false;
   bool _changingStore = false;
+  StoreRoutePlan? _routePlan;
 
   SupermarketViewportState? get _viewport => _viewportKey.currentState;
 
@@ -84,6 +87,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       _viewportKey = GlobalKey();
       _panWithOneFinger = false;
       _showNodes = false;
+      _routePlan = null;
     });
   }
 
@@ -124,6 +128,41 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
+  Future<void> _openRoutePlanner(StoreModel model) async {
+    final names = ref.read(productNamesProvider).value ?? const {};
+    final productIds = await showRoutePlannerSheet(
+      context,
+      products: model.metadata.products,
+      productNames: names,
+    );
+    if (!mounted || productIds == null) return;
+    try {
+      if (model.metadata.routeNodes.isEmpty) {
+        throw StateError('El GLB no contiene nodos de ruta.');
+      }
+      final startNode = model.metadata.routeNodes.firstWhere(
+        (node) => RegExp(
+          r'acceso|entrada|inicio',
+          caseSensitive: false,
+        ).hasMatch(node.id),
+        orElse: () => model.metadata.routeNodes.first,
+      );
+      final plan = const StoreRoutePlanner().plan(
+        routeNodes: model.metadata.routeNodes,
+        products: model.metadata.products,
+        startNodeId: startNode.id,
+        productIds: productIds,
+      );
+      setState(() => _routePlan = plan);
+    } on StateError catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo calcular la ruta: $error')),
+      );
+    }
+  }
+
+  void _clearRoute() => setState(() => _routePlan = null);
+
   @override
   Widget build(BuildContext context) {
     final store = ref.watch(selectedStoreProvider);
@@ -152,6 +191,13 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: 'Planificar ruta',
+              icon: const Icon(Icons.route),
+              onPressed: model.hasValue
+                  ? () => _openRoutePlanner(model.requireValue)
+                  : null,
+            ),
             IconButton(
               tooltip: 'Productos',
               icon: const Icon(Icons.inventory_2_outlined),
@@ -236,6 +282,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
 
   Widget _buildViewer(BuildContext context, StoreModel model) {
     final names = ref.watch(productNamesProvider).value ?? const {};
+    final routePlan = _routePlan;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -247,6 +294,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           productNames: names,
           onProductTapped: (id) => _editProduct(model, id),
           onRetry: _retryViewer,
+          routePlan: routePlan,
         ),
         Positioned(
           top: 12,
@@ -312,6 +360,43 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             ),
           ),
         ),
+        if (routePlan != null)
+          Positioned(
+            bottom: _showMetrics ? 238 : 16,
+            left: 16,
+            right: 76,
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.route,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${routePlan.products.length} paradas · '
+                        '${routePlan.distance.toStringAsFixed(1)} unidades · '
+                        '${routePlan.products.take(2).map((product) => names[product.id] ?? product.name).join(', ')}'
+                        '${routePlan.products.length > 2 ? '…' : ''}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Quitar ruta',
+                      onPressed: _clearRoute,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (_showMetrics)
           Positioned(
             bottom: 16,
