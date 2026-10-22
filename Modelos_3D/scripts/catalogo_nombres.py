@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-"""Nombres iniciales de productos por categoria (editables luego en Blender o en la app)."""
+
 
 NOMBRES = {
     "Frutas": ["Manzana roja", "Platano", "Naranja", "Uva", "Frutilla", "Papaya"],
@@ -75,7 +74,6 @@ IMPULSO = ["Chocolates", "Snacks", "Galletas", "Bebidas", "Ofertas", "Caramelos"
 
 
 def nombre_para(categoria, indice):
-    """Devuelve un nombre de producto para la categoria; 'indice' cuenta desde 0."""
     if categoria.startswith("Impulso cabecera"):
         n = int(categoria.split()[-1])
         return f"{IMPULSO[(n - 1 + indice * 5) % len(IMPULSO)]}"

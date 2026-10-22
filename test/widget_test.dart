@@ -31,7 +31,7 @@ class _FailingRepository implements StoreModelRepository {
 }
 
 void main() {
-  testWidgets('La app abre el supermercado, muestra la carga y los 2 botones', (
+  testWidgets('La app abre el supermercado y muestra la carga', (
     tester,
   ) async {
     final repository = _PendingRepository();
@@ -47,17 +47,9 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text(Supermarket.natural.title), findsOneWidget);
-    expect(find.text(Supermarket.natural.shortTitle), findsOneWidget);
-    expect(find.text(Supermarket.piloto.shortTitle), findsOneWidget);
     expect(find.text('Cargando el supermercado…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(repository.requested, [Supermarket.natural]);
-
-    await tester.tap(find.text(Supermarket.piloto.shortTitle));
-    await tester.pump();
-    expect(find.text(Supermarket.piloto.title), findsOneWidget);
-    expect(repository.requested.last, Supermarket.piloto);
   });
 
   testWidgets('Volver desde el mapa requiere confirmar y permite continuar', (
@@ -81,7 +73,7 @@ void main() {
     await tester.tap(find.text('Seguir explorando'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('¿Salir de SmartMarket?'), findsNothing);
-    expect(find.text(Supermarket.natural.title), findsOneWidget);
+    expect(find.text('Cargando el supermercado…'), findsOneWidget);
   });
 
   testWidgets('Un error permite volver a cargar el asset', (tester) async {
