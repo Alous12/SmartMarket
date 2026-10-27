@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model branch_points {
+  point_id     Int                      @id @default(autoincrement())
+  branch_id    Int
+  name         String                   @db.VarChar(100)
+  point_type   branch_points_point_type
+  coordinate_x Decimal                  @db.Decimal(10, 3)
+  coordinate_y Decimal                  @db.Decimal(10, 3)
+  coordinate_z Decimal                  @db.Decimal(10, 3)
+  created_at   DateTime                 @default(now()) @db.Timestamp(0)
+  branches     branches                 @relation(fields: [branch_id], references: [branch_id], map: "fk_branch_points_branch")
+
+  @@index([branch_id], map: "idx_branch_points_branch")
+}
+
+model branches {
+  branch_id     Int             @id @default(autoincrement())
+  name          String          @db.VarChar(150)
+  address       String          @db.VarChar(255)
+  latitude      Decimal         @db.Decimal(9, 6)
+  longitude     Decimal         @db.Decimal(9, 6)
+  status        Boolean         @default(true)
+  model_3d_url  String?         @db.Text
+  created_at    DateTime        @default(now()) @db.Timestamp(0)
+  branch_points branch_points[]
+  inventory     inventory[]
+  sections      sections[]
+}
+
+model categories {
+  category_id Int        @id @default(autoincrement())
+  name        String     @unique(map: "name") @db.VarChar(100)
+  description String?    @db.Text
+  created_at  DateTime   @default(now()) @db.Timestamp(0)
+  products    products[]
+}
+
+model ingredients {
+  ingredient_id       Int                   @id @default(autoincrement())
+  name                String                @unique(map: "name") @db.VarChar(150)
+  description         String?               @db.Text
+  created_at          DateTime              @default(now()) @db.Timestamp(0)
+  product_ingredients product_ingredients[]
+  recipe_ingredients  recipe_ingredients[]
+  substitution_events substitution_events[]
+  user_preferences    user_preferences[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model inventory {
+  inventory_id   Int      @id @default(autoincrement())
+  branch_id      Int
+  product_id     Int
+  stock_quantity Decimal  @default(0.00) @db.Decimal(10, 2)
+  updated_at     DateTime @default(now()) @db.Timestamp(0)
+  branches       branches @relation(fields: [branch_id], references: [branch_id], map: "fk_inventory_branch")
+  products       products @relation(fields: [product_id], references: [product_id], map: "fk_inventory_product")
+
+  @@unique([branch_id, product_id], map: "uq_inventory_branch_product")
+  @@index([branch_id], map: "idx_inventory_branch")
+  @@index([product_id], map: "idx_inventory_product")
+}
+
+model product_ingredients {
+  product_id    Int
+  ingredient_id Int
+  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  ingredients   ingredients @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: Cascade, map: "fk_product_ingredients_ingredient")
+  products      products    @relation(fields: [product_id], references: [product_id], onDelete: Cascade, map: "fk_product_ingredients_product")
+
+  @@id([product_id, ingredient_id])
+  @@index([ingredient_id], map: "idx_product_ingredients_ingredient")
+}
+
+model product_locations {
+  product_location_id Int      @id @default(autoincrement())
+  product_id          Int
+  section_id          Int
+  coordinate_x        Decimal  @db.Decimal(10, 3)
+  coordinate_y        Decimal  @db.Decimal(10, 3)
+  coordinate_z        Decimal  @db.Decimal(10, 3)
+  shelf               String?  @db.VarChar(100)
+  created_at          DateTime @default(now()) @db.Timestamp(0)
+  products            products @relation(fields: [product_id], references: [product_id], map: "fk_product_locations_product")
+  sections            sections @relation(fields: [section_id], references: [section_id], map: "fk_product_locations_section")
+
+  @@index([product_id], map: "idx_product_locations_product")
+  @@index([section_id], map: "idx_product_locations_section")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model products {
+  product_id                                                             Int                   @id @default(autoincrement())
+  sku                                                                    String                @unique(map: "sku") @db.VarChar(100)
+  name                                                                   String                @db.VarChar(150)
+  description                                                            String?               @db.Text
+  brand                                                                  String?               @db.VarChar(100)
+  price                                                                  Decimal               @db.Decimal(10, 2)
+  unit_of_measure                                                        String                @db.VarChar(50)
+  image_url                                                              String?               @db.Text
+  category_id                                                            Int
+  status                                                                 Boolean               @default(true)
+  created_at                                                             DateTime              @default(now()) @db.Timestamp(0)
+  inventory                                                              inventory[]
+  product_ingredients                                                    product_ingredients[]
+  product_locations                                                      product_locations[]
+  categories                                                             categories            @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
+  substitution_events_substitution_events_selected_product_idToproducts  substitution_events[] @relation("substitution_events_selected_product_idToproducts")
+  substitution_events_substitution_events_suggested_product_idToproducts substitution_events[] @relation("substitution_events_suggested_product_idToproducts")
+
+  @@index([category_id], map: "fk_products_category")
+}
+
+model recipe_history {
+  history_id  Int      @id @default(autoincrement())
+  user_id     Int
+  recipe_id   Int
+  selected_at DateTime @default(now()) @db.Timestamp(0)
+  recipes     recipes  @relation(fields: [recipe_id], references: [recipe_id], map: "fk_recipe_history_recipe")
+  users       users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_recipe_history_user")
+
+  @@index([recipe_id], map: "idx_recipe_history_recipe")
+  @@index([user_id], map: "idx_recipe_history_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model recipe_ingredients {
+  recipe_id     Int
+  ingredient_id Int
+  quantity      Decimal     @db.Decimal(10, 3)
+  unit          String      @db.VarChar(50)
+  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  ingredients   ingredients @relation(fields: [ingredient_id], references: [ingredient_id], map: "fk_recipe_ingredients_ingredient")
+  recipes       recipes     @relation(fields: [recipe_id], references: [recipe_id], onDelete: Cascade, map: "fk_recipe_ingredients_recipe")
+
+  @@id([recipe_id, ingredient_id])
+  @@index([ingredient_id], map: "idx_recipe_ingredients_ingredient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model recipes {
+  recipe_id           Int                   @id @default(autoincrement())
+  name                String                @db.VarChar(150)
+  description         String?               @db.Text
+  instructions        String                @db.Text
+  servings            Int?
+  image_url           String?               @db.Text
+  source              recipes_source        @default(MANUAL)
+  created_by_user_id  Int?
+  created_at          DateTime              @default(now()) @db.Timestamp(0)
+  recipe_history      recipe_history[]
+  recipe_ingredients  recipe_ingredients[]
+  users               users?                @relation(fields: [created_by_user_id], references: [user_id], map: "fk_recipes_created_by")
+  substitution_events substitution_events[]
+
+  @@index([created_by_user_id], map: "fk_recipes_created_by")
+}
+
+model sections {
+  section_id        Int                 @id @default(autoincrement())
+  branch_id         Int
+  name              String              @db.VarChar(100)
+  description       String?             @db.Text
+  created_at        DateTime            @default(now()) @db.Timestamp(0)
+  product_locations product_locations[]
+  branches          branches            @relation(fields: [branch_id], references: [branch_id], map: "fk_sections_branch")
+
+  @@index([branch_id], map: "idx_sections_branch")
+}
+
+model substitution_events {
+  event_id                                                    Int                        @id @default(autoincrement())
+  user_id                                                     Int
+  recipe_id                                                   Int
+  ingredient_id                                               Int
+  suggested_product_id                                        Int
+  selected_product_id                                         Int?
+  reason                                                      substitution_events_reason
+  accepted                                                    Boolean                    @default(false)
+  created_at                                                  DateTime                   @default(now()) @db.Timestamp(0)
+  ingredients                                                 ingredients                @relation(fields: [ingredient_id], references: [ingredient_id], map: "fk_substitution_events_ingredient")
+  recipes                                                     recipes                    @relation(fields: [recipe_id], references: [recipe_id], map: "fk_substitution_events_recipe")
+  products_substitution_events_selected_product_idToproducts  products?                  @relation("substitution_events_selected_product_idToproducts", fields: [selected_product_id], references: [product_id], onDelete: Restrict, map: "fk_substitution_events_selected_product")
+  products_substitution_events_suggested_product_idToproducts products                   @relation("substitution_events_suggested_product_idToproducts", fields: [suggested_product_id], references: [product_id], map: "fk_substitution_events_suggested_product")
+  users                                                       users                      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_substitution_events_user")
+
+  @@index([ingredient_id], map: "fk_substitution_events_ingredient")
+  @@index([selected_product_id], map: "fk_substitution_events_selected_product")
+  @@index([suggested_product_id], map: "fk_substitution_events_suggested_product")
+  @@index([recipe_id], map: "idx_substitution_events_recipe")
+  @@index([user_id], map: "idx_substitution_events_user")
+}
+
+model user_preferences {
+  preference_id   Int                              @id @default(autoincrement())
+  user_id         Int
+  ingredient_id   Int
+  preference_type user_preferences_preference_type
+  created_at      DateTime                         @default(now()) @db.Timestamp(0)
+  ingredients     ingredients                      @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: Cascade, map: "fk_user_preferences_ingredient")
+  users           users                            @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_user_preferences_user")
+
+  @@unique([user_id, ingredient_id], map: "uq_user_preference")
+  @@index([ingredient_id], map: "idx_user_preferences_ingredient")
+  @@index([user_id], map: "idx_user_preferences_user")
+}
+
+model users {
+  user_id                                     Int                   @id @default(autoincrement())
+  name                                        String                @db.VarChar(100)
+  last_name                                   String                @db.VarChar(100)
+  email                                       String                @unique(map: "email") @db.VarChar(255)
+  password_hash                               String                @db.VarChar(255)
+  status                                      Boolean               @default(true)
+  created_at                                  DateTime              @default(now()) @db.Timestamp(0)
+  created_by_user_id                          Int?
+  updated_at                                  DateTime              @default(now()) @db.Timestamp(0)
+  updated_by_user_id                          Int?
+  role                                        String                @db.VarChar(45)
+  recipe_history                              recipe_history[]
+  recipes                                     recipes[]
+  substitution_events                         substitution_events[]
+  user_preferences                            user_preferences[]
+  users_users_created_by_user_idTousers       users?                @relation("users_created_by_user_idTousers", fields: [created_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_created_by")
+  other_users_users_created_by_user_idTousers users[]               @relation("users_created_by_user_idTousers")
+  users_users_updated_by_user_idTousers       users?                @relation("users_updated_by_user_idTousers", fields: [updated_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_updated_by")
+  other_users_users_updated_by_user_idTousers users[]               @relation("users_updated_by_user_idTousers")
+
+  @@index([created_by_user_id], map: "fk_users_created_by")
+  @@index([updated_by_user_id], map: "fk_users_updated_by")
+}
+
+enum user_preferences_preference_type {
+  AVOID
+  PREFER
+}
+
+enum branch_points_point_type {
+  ENTRANCE
+  CHECKOUT
+  OTHER
+}
+
+enum recipes_source {
+  MANUAL
+  AI
+}
+
+enum substitution_events_reason {
+  OUT_OF_STOCK
+  CHEAPER
+  USER_PREFERENCE
+  SIMILAR_PRODUCT
+  OTHER
+}
