@@ -7,15 +7,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isPositiveId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
 /**
  * Valida el cuerpo de la petición y devuelve el texto exactamente como lo
- * escribió el usuario, sin recortar ni normalizar.
+ * escribió el usuario, sin recortar ni normalizar, junto con la sucursal
+ * seleccionada (opcional).
  */
-export function parseAssistantPrompt(body: unknown): string {
+export function parseAssistantRequest(body: unknown): {
+  prompt: string;
+  branchId: number | null;
+} {
   if (!isRecord(body)) {
     throw new HttpError(400, 'El cuerpo de la solicitud debe ser un objeto JSON.');
   }
-  const unexpectedField = Object.keys(body).find((field) => field !== 'prompt');
+  const unexpectedField = Object.keys(body).find(
+    (field) => field !== 'prompt' && field !== 'branch_id',
+  );
   if (unexpectedField) {
     throw new HttpError(400, `El campo ${unexpectedField} no está permitido.`);
   }
@@ -25,5 +35,19 @@ export function parseAssistantPrompt(body: unknown): string {
   if (Buffer.byteLength(body.prompt, 'utf8') > maxPromptBytes) {
     throw new HttpError(400, `prompt no puede superar ${maxPromptBytes} bytes.`);
   }
-  return body.prompt;
+  if (body.branch_id === undefined) {
+    return { prompt: body.prompt, branchId: null };
+  }
+  if (!isPositiveId(body.branch_id)) {
+    throw new HttpError(400, 'branch_id debe ser un entero positivo.');
+  }
+  return { prompt: body.prompt, branchId: body.branch_id };
+}
+
+export function parseRequestId(value: string | string[]): number {
+  const requestId = typeof value === 'string' ? Number(value) : Number.NaN;
+  if (!isPositiveId(requestId)) {
+    throw new HttpError(400, 'El id de la petición debe ser un entero positivo.');
+  }
+  return requestId;
 }

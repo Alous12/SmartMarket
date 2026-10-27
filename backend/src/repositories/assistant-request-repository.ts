@@ -11,6 +11,7 @@ interface AssistantRequestRow extends RowDataPacket, AssistantRequest {}
 const columns = `
   request_id,
   user_id,
+  branch_id,
   prompt,
   status,
   created_at,
@@ -29,6 +30,7 @@ export async function findById(
   return {
     request_id: row.request_id,
     user_id: row.user_id,
+    branch_id: row.branch_id,
     prompt: row.prompt,
     status: row.status,
     created_at: row.created_at,
@@ -38,12 +40,13 @@ export async function findById(
 
 export async function create(input: {
   userId: number;
+  branchId: number | null;
   prompt: string;
 }): Promise<AssistantRequest> {
   const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO assistant_requests (user_id, prompt, status)
-     VALUES (?, ?, 'RECEIVED')`,
-    [input.userId, input.prompt],
+    `INSERT INTO assistant_requests (user_id, branch_id, prompt, status)
+     VALUES (?, ?, ?, 'RECEIVED')`,
+    [input.userId, input.branchId, input.prompt],
   );
 
   const request = await findById(result.insertId);

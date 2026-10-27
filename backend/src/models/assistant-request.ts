@@ -7,6 +7,7 @@ export type AssistantRequestStatus =
 export interface AssistantRequest {
   request_id: number;
   user_id: number;
+  branch_id: number | null;
   prompt: string;
   status: AssistantRequestStatus;
   created_at: Date;
