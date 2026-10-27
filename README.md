@@ -163,6 +163,32 @@ un panel para listar ni administrar usuarios. Las rutas de `/api/users` siguen
 sin autenticación ni autorización; no las expongas a usuarios o redes no
 confiables.
 
+### API del asistente y lista de ingredientes
+
+Todas las rutas requieren el token `Bearer`, y cada usuario solo accede a sus
+propias peticiones. La petición puede incluir la sucursal seleccionada
+(`branch_id`). La migración `seed_branches_ingredients` crea las dos sucursales
+piloto (Supermercado Natural y SmartMarket Piloto) y el catálogo de ingredientes
+genéricos.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) |
+| `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
+| `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
+
+El `PUT` recibe la salida del paso de identificación,
+`{"ingredients": [{"name": "Tomate", "quantity": 3, "unit": "u"}]}`, donde
+`quantity` y `unit` son opcionales y `unit` requiere `quantity`. El backend
+normaliza los nombres (sin mayúsculas, tildes ni espacios repetidos) y fusiona
+los repetidos. Suma las cantidades solo si todas tienen la misma unidad; si no,
+la cantidad queda en `null`. Cada elemento se relaciona con `ingredients`:
+`ingredient_id` es `null` si el ingrediente no está en el catálogo. La lista se
+guarda en `shopping_lists` y `shopping_list_items` con la sucursal de la
+petición. Repetir el `PUT` reemplaza los elementos y conserva el mismo
+`list_id`. Mientras no exista la IA, este endpoint permite cargar la lista a
+mano; después, la IA llamará al mismo servicio (`generateIngredientList`).
+
 ### Conectar Flutter con el backend
 
 Flutter consume la API HTTP; el teléfono no se conecta directamente a MySQL.

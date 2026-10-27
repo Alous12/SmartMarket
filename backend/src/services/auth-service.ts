@@ -49,13 +49,18 @@ export async function login(body: unknown): Promise<{
   }
 
   return {
-    token: createAuthToken({ username: user.name, role: user.role }),
+    token: createAuthToken({
+      userId: user.user_id,
+      username: user.name,
+      role: user.role,
+    }),
     username: user.name,
     role: user.role,
   };
 }
 
 export function getIdentity(authorization: string | undefined): {
+  userId: number;
   username: string;
   role: UserRole;
 } {

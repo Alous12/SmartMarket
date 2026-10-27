@@ -7,6 +7,22 @@ datasource db {
   provider = "mysql"
 }
 
+model assistant_requests {
+  request_id     Int                       @id @default(autoincrement())
+  user_id        Int
+  branch_id      Int?
+  prompt         String                    @db.Text
+  status         assistant_requests_status @default(RECEIVED)
+  created_at     DateTime                  @default(now()) @db.Timestamp(0)
+  updated_at     DateTime                  @default(now()) @db.Timestamp(0)
+  users          users                     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_assistant_requests_user")
+  branches       branches?                 @relation(fields: [branch_id], references: [branch_id], map: "fk_assistant_requests_branch")
+  shopping_lists shopping_lists?
+
+  @@index([user_id], map: "idx_assistant_requests_user")
+  @@index([branch_id], map: "idx_assistant_requests_branch")
+}
+
 model branch_points {
   point_id     Int                      @id @default(autoincrement())
   branch_id    Int
@@ -22,17 +38,19 @@ model branch_points {
 }
 
 model branches {
-  branch_id     Int             @id @default(autoincrement())
-  name          String          @db.VarChar(150)
-  address       String          @db.VarChar(255)
-  latitude      Decimal         @db.Decimal(9, 6)
-  longitude     Decimal         @db.Decimal(9, 6)
-  status        Boolean         @default(true)
-  model_3d_url  String?         @db.Text
-  created_at    DateTime        @default(now()) @db.Timestamp(0)
-  branch_points branch_points[]
-  inventory     inventory[]
-  sections      sections[]
+  branch_id          Int                  @id @default(autoincrement())
+  name               String               @db.VarChar(150)
+  address            String               @db.VarChar(255)
+  latitude           Decimal              @db.Decimal(9, 6)
+  longitude          Decimal              @db.Decimal(9, 6)
+  status             Boolean              @default(true)
+  model_3d_url       String?              @db.Text
+  created_at         DateTime             @default(now()) @db.Timestamp(0)
+  assistant_requests assistant_requests[]
+  branch_points      branch_points[]
+  inventory          inventory[]
+  sections           sections[]
+  shopping_lists     shopping_lists[]
 }
 
 model categories {
@@ -50,6 +68,7 @@ model ingredients {
   created_at          DateTime              @default(now()) @db.Timestamp(0)
   product_ingredients product_ingredients[]
   recipe_ingredients  recipe_ingredients[]
+  shopping_list_items shopping_list_items[]
   substitution_events substitution_events[]
   user_preferences    user_preferences[]
 }
@@ -176,6 +195,41 @@ model sections {
   @@index([branch_id], map: "idx_sections_branch")
 }
 
+model shopping_lists {
+  list_id             Int                   @id @default(autoincrement())
+  user_id             Int
+  branch_id           Int
+  request_id          Int?                  @unique(map: "uq_shopping_lists_request")
+  source              shopping_lists_source
+  status              shopping_lists_status @default(ACTIVE)
+  created_at          DateTime              @default(now()) @db.Timestamp(0)
+  updated_at          DateTime              @default(now()) @db.Timestamp(0)
+  users               users                 @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_shopping_lists_user")
+  branches            branches              @relation(fields: [branch_id], references: [branch_id], map: "fk_shopping_lists_branch")
+  assistant_requests  assistant_requests?   @relation(fields: [request_id], references: [request_id], onDelete: SetNull, map: "fk_shopping_lists_request")
+  shopping_list_items shopping_list_items[]
+
+  @@index([user_id], map: "idx_shopping_lists_user")
+  @@index([branch_id], map: "idx_shopping_lists_branch")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model shopping_list_items {
+  item_id         Int            @id @default(autoincrement())
+  list_id         Int
+  ingredient_id   Int?
+  raw_name        String         @db.VarChar(150)
+  normalized_name String         @db.VarChar(150)
+  quantity        Decimal?       @db.Decimal(10, 3)
+  unit            String?        @db.VarChar(50)
+  created_at      DateTime       @default(now()) @db.Timestamp(0)
+  shopping_lists  shopping_lists @relation(fields: [list_id], references: [list_id], onDelete: Cascade, map: "fk_shopping_list_items_list")
+  ingredients     ingredients?   @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: SetNull, map: "fk_shopping_list_items_ingredient")
+
+  @@index([list_id], map: "idx_shopping_list_items_list")
+  @@index([ingredient_id], map: "idx_shopping_list_items_ingredient")
+}
+
 model substitution_events {
   event_id                                                    Int                        @id @default(autoincrement())
   user_id                                                     Int
@@ -225,8 +279,10 @@ model users {
   updated_at                                  DateTime              @default(now()) @db.Timestamp(0)
   updated_by_user_id                          Int?
   role                                        String                @db.VarChar(45)
+  assistant_requests                          assistant_requests[]
   recipe_history                              recipe_history[]
   recipes                                     recipes[]
+  shopping_lists                              shopping_lists[]
   substitution_events                         substitution_events[]
   user_preferences                            user_preferences[]
   users_users_created_by_user_idTousers       users?                @relation("users_created_by_user_idTousers", fields: [created_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_created_by")
@@ -238,6 +294,13 @@ model users {
   @@index([updated_by_user_id], map: "fk_users_updated_by")
 }
 
+enum assistant_requests_status {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 enum user_preferences_preference_type {
   AVOID
   PREFER
@@ -247,6 +310,18 @@ enum branch_points_point_type {
   ENTRANCE
   CHECKOUT
   OTHER
+}
+
+enum shopping_lists_source {
+  MANUAL
+  RECIPE
+  AI
+}
+
+enum shopping_lists_status {
+  ACTIVE
+  COMPLETED
+  CANCELLED
 }
 
 enum recipes_source {
