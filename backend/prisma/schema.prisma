@@ -7,6 +7,18 @@ datasource db {
   provider = "mysql"
 }
 
+model assistant_requests {
+  request_id Int                       @id @default(autoincrement())
+  user_id    Int
+  prompt     String                    @db.Text
+  status     assistant_requests_status @default(RECEIVED)
+  created_at DateTime                  @default(now()) @db.Timestamp(0)
+  updated_at DateTime                  @default(now()) @db.Timestamp(0)
+  users      users                     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_assistant_requests_user")
+
+  @@index([user_id], map: "idx_assistant_requests_user")
+}
+
 model branch_points {
   point_id     Int                      @id @default(autoincrement())
   branch_id    Int
@@ -225,6 +237,7 @@ model users {
   updated_at                                  DateTime              @default(now()) @db.Timestamp(0)
   updated_by_user_id                          Int?
   role                                        String                @db.VarChar(45)
+  assistant_requests                          assistant_requests[]
   recipe_history                              recipe_history[]
   recipes                                     recipes[]
   substitution_events                         substitution_events[]
@@ -236,6 +249,13 @@ model users {
 
   @@index([created_by_user_id], map: "fk_users_created_by")
   @@index([updated_by_user_id], map: "fk_users_updated_by")
+}
+
+enum assistant_requests_status {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 enum user_preferences_preference_type {
