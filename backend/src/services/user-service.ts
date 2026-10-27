@@ -145,11 +145,11 @@ export function parseUserId(value: string | string[]): number {
 }
 
 export async function listUsers(): Promise<User[]> {
-  return userRepository.findAll();
+  return userRepository.findAllManaged();
 }
 
 export async function getUser(userId: number): Promise<User> {
-  const user = await userRepository.findById(userId);
+  const user = await userRepository.findManagedById(userId);
   if (!user) {
     throw new HttpError(404, 'Usuario no encontrado.');
   }
@@ -184,7 +184,7 @@ export async function updateUser(userId: number, body: unknown): Promise<User> {
 export async function deactivateUser(userId: number): Promise<void> {
   const deactivated = await userRepository.deactivate(userId);
   if (!deactivated) {
-    const user = await userRepository.findById(userId);
+    const user = await userRepository.findManagedById(userId);
     if (!user) {
       throw new HttpError(404, 'Usuario no encontrado.');
     }
