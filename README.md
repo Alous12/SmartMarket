@@ -153,15 +153,36 @@ en MySQL usando una cuenta administrativa.
 | Método | Ruta | Descripción |
 | --- | --- | --- |
 | `POST` | `/api/users` | Crear usuario (`name`, `last_name`, `email`, `password`) |
-| `GET` | `/api/users` | Listar usuarios |
-| `GET` | `/api/users/:userId` | Consultar usuario |
-| `PATCH` | `/api/users/:userId` | Actualizar nombre, apellido, correo, contraseña o estado |
-| `DELETE` | `/api/users/:userId` | Desactivar usuario (baja lógica) |
+| `GET` | `/api/users` | Listar usuarios (requiere rol `admin`) |
+| `GET` | `/api/users/:userId` | Consultar usuario (requiere rol `admin`) |
+| `PATCH` | `/api/users/:userId` | Actualizar usuario (requiere rol `admin`) |
+| `DELETE` | `/api/users/:userId` | Desactivar usuario (requiere rol `admin`) |
 
-La app permite crear una cuenta desde su pantalla de registro, pero no incluye
-un panel para listar ni administrar usuarios. Las rutas de `/api/users` siguen
-sin autenticación ni autorización; no las expongas a usuarios o redes no
-confiables.
+La app permite crear una cuenta desde su pantalla de registro. El panel de
+usuarios está reservado a trabajadores. El registro es público y siempre crea
+usuarios con rol `user`; la API no permite asignar ni cambiar roles.
+
+### API de productos y roles
+
+`user` es el rol de cliente y `admin` el rol de trabajador. Las rutas de gestión
+validan el JWT `Bearer` en el servidor; ocultar botones o redirigir en Flutter
+no sustituye esta autorización. El trabajador puede operar en cualquiera de
+las sucursales activas, ya que las cuentas todavía no están vinculadas a una
+sucursal. La gestión de usuarios solo muestra cuentas `user`; los endpoints
+no permiten consultar, editar ni desactivar cuentas `admin`.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `GET` | `/api/products` | Listar productos y ubicaciones (requiere autenticación; `branch_id` es opcional) |
+| `GET` | `/api/products/options` | Obtener categorías y secciones activas (requiere rol `admin`) |
+| `POST` | `/api/products` | Crear producto, inventario inicial y ubicación (requiere rol `admin`) |
+| `PATCH` | `/api/products/:productId/location` | Cambiar ubicación del producto (requiere rol `admin`) |
+
+Flutter envía a clientes al mapa del supermercado y a trabajadores al panel
+con las pestañas de agregar productos y cambiar su ubicación. La pestaña de
+agregar productos queda como espacio reservado para una implementación futura;
+el endpoint de creación permanece disponible y protegido en el backend.
+La pantalla de gestión de usuarios está restringida al rol `admin`.
 
 ### API del asistente y lista de ingredientes
 

@@ -41,6 +41,21 @@ void main() {
       client.close();
     });
 
+    test('envía el token Bearer al listar usuarios', () async {
+      final client = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer staff-token');
+        return http.Response(jsonEncode({'data': []}), 200);
+      });
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+        tokenReader: () async => 'staff-token',
+      );
+
+      expect(await api.getUsers(), isEmpty);
+      client.close();
+    });
+
     test('envía la solicitud de creación con el contrato esperado', () async {
       final client = MockClient((request) async {
         expect(request.method, 'POST');
