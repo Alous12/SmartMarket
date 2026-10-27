@@ -10,10 +10,9 @@ import '../../domain/services/store_route_planner.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/product_sheets.dart';
 import '../widgets/render_metrics.dart';
-import '../widgets/route_planner_sheet.dart';
 import '../widgets/supermarket_viewport.dart';
 
-/// Lista inicial mientras no exista una lista persistida en la base de datos.
+/// Ruta mock mientras no exista una lista persistida en la base de datos.
 const _demoRouteStops = 8;
 
 class SupermarketScreen extends ConsumerStatefulWidget {
@@ -133,68 +132,24 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
-  Future<void> _openRoutePlanner(StoreModel model) async {
-    final names = ref.read(productNamesProvider).value ?? const {};
-    final productIds = await showRoutePlannerSheet(
-      context,
-      products: model.metadata.products,
-      productNames: names,
-    );
-    if (!mounted || productIds == null) return;
-    try {
-      if (model.metadata.routeNodes.isEmpty) {
-        throw StateError('El GLB no contiene nodos de ruta.');
-      }
-      final plan = _planRoute(model, productIds);
-      ref.read(navigationSessionProvider.notifier).start(plan);
-    } on StateError catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo calcular la ruta: $error')),
-      );
-    }
+  void _advanceNavigation({required bool collected}) {
+    ref.read(navigationSessionProvider.notifier).advance(collected: collected);
   }
 
-  StoreRoutePlan _planRoute(
-    StoreModel model,
-    List<String> productIds, {
-    String? startNodeId,
-  }) {
-    final resolvedStartNodeId = startNodeId ??
-        model.metadata.routeNodes
-            .firstWhere(
-              (node) => RegExp(
-                r'acceso|entrada|inicio',
-                caseSensitive: false,
-              ).hasMatch(node.id),
-              orElse: () => model.metadata.routeNodes.first,
-            )
-            .id;
+  StoreRoutePlan _planRoute(StoreModel model, List<String> productIds) {
+    final startNode = model.metadata.routeNodes.firstWhere(
+      (node) => RegExp(
+        r'acceso|entrada|inicio',
+        caseSensitive: false,
+      ).hasMatch(node.id),
+      orElse: () => model.metadata.routeNodes.first,
+    );
     return const StoreRoutePlanner().plan(
       routeNodes: model.metadata.routeNodes,
       products: model.metadata.products,
-      startNodeId: resolvedStartNodeId,
+      startNodeId: startNode.id,
       productIds: productIds,
     );
-  }
-
-  void _advanceNavigation(StoreModel model, {required bool collected}) {
-    final session = ref.read(navigationSessionProvider);
-    final origin = session.current;
-    if (origin == null) return;
-    final notifier = ref.read(navigationSessionProvider.notifier);
-    notifier.advance(collected: collected);
-    final next = ref.read(navigationSessionProvider).current;
-    if (next == null) return;
-    try {
-      // Se vuelve a ejecutar A* desde la parada realmente visitada, no desde
-      // la entrada ni desde una coordenada de demostración.
-      notifier.showCurrentLeg(
-        _planRoute(model, [next.id], startNodeId: origin.routeNode),
-      );
-    } on StateError {
-      // La tarjeta sigue mostrando la siguiente parada aunque el GLB tenga
-      // una conexión incompleta.
-    }
   }
 
   void _startDemoRouteIfNeeded(StoreModel model) {
@@ -215,11 +170,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         ref.read(navigationSessionProvider.notifier).start(plan);
       });
     } on StateError {
-      // El planificador manual conserva su mensaje de error. La demo no debe
-      // impedir visualizar un modelo que todavía no tenga ruta completa.
+      // Un modelo sin ruta completa debe poder visualizarse igualmente.
     }
   }
-
   void _showTopView() {
     setState(() => _topView = true);
     _viewport?.setView('superior');
@@ -314,13 +267,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           ),
           actions: [
             IconButton(
-              tooltip: 'Planificar ruta',
-              icon: const Icon(Icons.route),
-              onPressed: model.hasValue
-                  ? () => _openRoutePlanner(model.requireValue)
-                  : null,
-            ),
-            IconButton(
               tooltip: 'Productos',
               icon: const Icon(Icons.inventory_2_outlined),
               onPressed: model.hasValue
@@ -409,7 +355,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     final stops = session.stops;
     final current = session.current;
     String nameOf(StoreProduct product) => names[product.id] ?? product.name;
-    final routePlan = session.remainingPlan;
+    final routePlan = session.plan;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -421,7 +367,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           productNames: names,
           onProductTapped: (id) => _editProduct(model, id),
           onRetry: _retryViewer,
-          routePlan: session.remainingPlan,
+          routePlan: session.plan,
+          completedStops: session.nextProductIndex,
         ),
         SafeArea(
           bottom: false,
@@ -488,8 +435,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             index: session.nextProductIndex,
             collected: session.collected,
             nameOf: nameOf,
-            onSkip: () => _advanceNavigation(model, collected: false),
-            onCollected: () => _advanceNavigation(model, collected: true),
+            onSkip: () => _advanceNavigation(collected: false),
+            onCollected: () => _advanceNavigation(collected: true),
             onRestart: () =>
                 ref.read(navigationSessionProvider.notifier).restart(),
           ),

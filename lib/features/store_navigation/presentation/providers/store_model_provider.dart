@@ -65,13 +65,11 @@ final navigationSessionProvider =
 class NavigationSession {
   const NavigationSession({
     this.plan,
-    this.currentLeg,
     this.nextProductIndex = 0,
     this.collected = 0,
   });
 
   final StoreRoutePlan? plan;
-  final StoreRoutePlan? currentLeg;
   final int nextProductIndex;
   final int collected;
 
@@ -79,33 +77,6 @@ class NavigationSession {
   StoreProduct? get current =>
       nextProductIndex < stops.length ? stops[nextProductIndex] : null;
   int get pending => stops.length - nextProductIndex;
-
-  /// Únicamente el tramo hacia el producto actual. Al avanzar, el origen pasa
-  /// a ser la parada anterior y se expone el siguiente tramo.
-  StoreRoutePlan? get remainingPlan {
-    if (currentLeg != null) return currentLeg;
-    final activePlan = plan;
-    final currentProduct = current;
-    if (activePlan == null || currentProduct == null) return null;
-    final originNode = nextProductIndex == 0
-        ? activePlan.nodeIds.first
-        : stops[nextProductIndex - 1].routeNode;
-    final pathStart = activePlan.nodeIds.indexOf(originNode);
-    if (pathStart < 0) return null;
-    final destinationIndex = activePlan.nodeIds.indexOf(
-      currentProduct.routeNode,
-      pathStart,
-    );
-    if (destinationIndex < pathStart) return null;
-    return StoreRoutePlan(
-      nodeIds: List.unmodifiable(
-        activePlan.nodeIds.sublist(pathStart, destinationIndex + 1),
-      ),
-      stopNodeIds: List.unmodifiable([currentProduct.routeNode]),
-      products: List.unmodifiable([currentProduct]),
-      distance: activePlan.distance,
-    );
-  }
 }
 
 class NavigationSessionNotifier extends Notifier<NavigationSession> {
@@ -118,18 +89,8 @@ class NavigationSessionNotifier extends Notifier<NavigationSession> {
     if (state.current == null) return;
     state = NavigationSession(
       plan: state.plan,
-      currentLeg: null,
       nextProductIndex: state.nextProductIndex + 1,
       collected: state.collected + (collected ? 1 : 0),
-    );
-  }
-
-  void showCurrentLeg(StoreRoutePlan leg) {
-    state = NavigationSession(
-      plan: state.plan,
-      currentLeg: leg,
-      nextProductIndex: state.nextProductIndex,
-      collected: state.collected,
     );
   }
 
