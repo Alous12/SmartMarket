@@ -197,6 +197,7 @@ genéricos.
 | `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) |
 | `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
 | `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
+| `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Consultar disponibilidad por ingrediente en la sucursal de la petición |
 
 El `PUT` recibe la salida del paso de identificación,
 `{"ingredients": [{"name": "Tomate", "quantity": 3, "unit": "u"}]}`, donde
@@ -209,6 +210,11 @@ guarda en `shopping_lists` y `shopping_list_items` con la sucursal de la
 petición. Repetir el `PUT` reemplaza los elementos y conserva el mismo
 `list_id`. Mientras no exista la IA, este endpoint permite cargar la lista a
 mano; después, la IA llamará al mismo servicio (`generateIngredientList`).
+La consulta de disponibilidad compara cada ingrediente del catálogo con los
+productos activos asociados que tienen inventario positivo en esa sucursal.
+Cada elemento incluye `availability` (`AVAILABLE`, `UNAVAILABLE` o
+`NOT_IN_CATALOG`) y `available_products` con los productos y existencias
+encontrados.
 
 ### Conectar Flutter con el backend
 

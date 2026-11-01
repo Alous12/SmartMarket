@@ -1,6 +1,7 @@
 import { HttpError } from '../middlewares/http-error.js';
 import type { AssistantRequest } from '../models/assistant-request.js';
 import type {
+  IngredientAvailabilityList,
   IdentifiedIngredient,
   ShoppingList,
 } from '../models/shopping-list.js';
@@ -8,6 +9,7 @@ import * as assistantRequestRepository from '../repositories/assistant-request-r
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
 import { getIdentity } from './auth-service.js';
+import { buildIngredientAvailabilityItems } from './ingredient-availability.js';
 import {
   buildIngredientList,
   normalizeIngredientName,
@@ -84,4 +86,37 @@ export async function getIngredientList(
     throw new HttpError(404, 'La petición todavía no tiene lista de ingredientes.');
   }
   return list;
+}
+
+export async function getIngredientAvailability(
+  authorization: string | undefined,
+  requestId: number,
+): Promise<IngredientAvailabilityList> {
+  const identity = getIdentity(authorization);
+  const request = await findOwnRequest(identity.userId, requestId);
+  if (request.branch_id === null) {
+    throw new HttpError(409, 'La petición no tiene una sucursal seleccionada.');
+  }
+
+  const list = await shoppingListRepository.findByRequest(requestId);
+  if (!list) {
+    throw new HttpError(404, 'La petición todavía no tiene lista de ingredientes.');
+  }
+
+  const ingredientIds = [
+    ...new Set(
+      list.items.flatMap((item) =>
+        item.ingredient_id === null ? [] : [item.ingredient_id],
+      ),
+    ),
+  ];
+  const products = await ingredientRepository.findAvailableProducts(
+    list.branch_id,
+    ingredientIds,
+  );
+
+  return {
+    ...list,
+    items: buildIngredientAvailabilityItems(list.items, products),
+  };
 }
