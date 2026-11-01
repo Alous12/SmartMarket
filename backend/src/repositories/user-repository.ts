@@ -41,11 +41,25 @@ function toUser(row: UserRow): User {
   };
 }
 
-export async function findAll(): Promise<User[]> {
+export async function findAllManaged(): Promise<User[]> {
   const [rows] = await pool.execute<UserRow[]>(
-    `SELECT ${publicUserColumns} FROM users ORDER BY user_id`,
+    `SELECT ${publicUserColumns}
+     FROM users
+     WHERE role = 'user'
+     ORDER BY user_id`,
   );
   return rows.map(toUser);
+}
+
+export async function findManagedById(userId: number): Promise<User | null> {
+  const [rows] = await pool.execute<UserRow[]>(
+    `SELECT ${publicUserColumns}
+     FROM users
+     WHERE user_id = ? AND role = 'user'
+     LIMIT 1`,
+    [userId],
+  );
+  return rows.length > 0 ? toUser(rows[0]) : null;
 }
 
 export async function findById(userId: number): Promise<User | null> {
@@ -115,20 +129,23 @@ export async function update(
   }
 
   if (updates.length === 0) {
-    return findById(userId);
+    return findManagedById(userId);
   }
 
   values.push(userId);
   await pool.execute(
-    `UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`,
+    `UPDATE users SET ${updates.join(', ')}
+     WHERE user_id = ? AND role = 'user'`,
     values,
   );
-  return findById(userId);
+  return findManagedById(userId);
 }
 
 export async function deactivate(userId: number): Promise<boolean> {
   const [result] = await pool.execute<ResultSetHeader>(
-    'UPDATE users SET status = FALSE WHERE user_id = ? AND status = TRUE',
+    `UPDATE users
+     SET status = FALSE
+     WHERE user_id = ? AND status = TRUE AND role = 'user'`,
     [userId],
   );
   return result.affectedRows > 0;

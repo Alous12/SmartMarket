@@ -25,6 +25,7 @@ class AuthSession {
   final String username;
   final String role;
 
+  bool get isAdmin => role == 'admin';
   factory AuthSession.fromJson(Map<String, dynamic> json, {String? token}) {
     final accessToken = token ?? json['token'];
     final username = json['username'];

@@ -173,6 +173,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       // Un modelo sin ruta completa debe poder visualizarse igualmente.
     }
   }
+
   void _showTopView() {
     setState(() => _topView = true);
     _viewport?.setView('superior');
@@ -196,6 +197,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) => _MapOptionsSheet(
+        isAdmin:
+            ref.read(authControllerProvider).asData?.value?.isAdmin ?? false,
         store: model.store,
         panWithOneFinger: _panWithOneFinger,
         showNodes: _showNodes,
@@ -215,8 +218,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           setState(() => _showNodes = !_showNodes);
           _viewport?.showNodes(_showNodes);
         },
-        onToggleMetrics: () =>
-            setState(() => _showMetrics = !_showMetrics),
+        onToggleMetrics: () => setState(() => _showMetrics = !_showMetrics),
       ),
     );
     if (!mounted || action == null) return;
@@ -229,6 +231,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         break;
       case _OpenUsers():
         await context.pushNamed('users');
+        break;
+      case _OpenStaff():
+        await context.pushNamed('staff');
         break;
       case _OpenAssistant():
         await context.pushNamed('assistant');
@@ -703,11 +708,7 @@ class _NextStopSheet extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Icon(
-                    Icons.schedule,
-                    size: 16,
-                    color: AppTheme.ink,
-                  ),
+                  const Icon(Icons.schedule, size: 16, color: AppTheme.ink),
                   const SizedBox(width: 4),
                   Text(
                     '$collected de ${stops.length} listos',
@@ -827,7 +828,10 @@ class _StopProduct extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.tint,
                   borderRadius: BorderRadius.circular(20),
@@ -909,6 +913,10 @@ class _OpenUsers extends _MapAction {
   const _OpenUsers();
 }
 
+class _OpenStaff extends _MapAction {
+  const _OpenStaff();
+}
+
 class _OpenAssistant extends _MapAction {
   const _OpenAssistant();
 }
@@ -931,8 +939,10 @@ class _MapOptionsSheet extends StatelessWidget {
     required this.onToggleMode,
     required this.onToggleNodes,
     required this.onToggleMetrics,
+    required this.isAdmin,
   });
 
+  final bool isAdmin;
   final Supermarket store;
   final bool panWithOneFinger;
   final bool showNodes;
@@ -991,10 +1001,22 @@ class _MapOptionsSheet extends StatelessWidget {
               children: [
                 _ToolButton(Icons.add, 'Acercar', onZoomIn),
                 _ToolButton(Icons.remove, 'Alejar', onZoomOut),
-                _ToolButton(Icons.rotate_left, 'Girar a la izquierda', onRotateLeft),
-                _ToolButton(Icons.rotate_right, 'Girar a la derecha', onRotateRight),
+                _ToolButton(
+                  Icons.rotate_left,
+                  'Girar a la izquierda',
+                  onRotateLeft,
+                ),
+                _ToolButton(
+                  Icons.rotate_right,
+                  'Girar a la derecha',
+                  onRotateRight,
+                ),
                 _ToolButton(Icons.map_outlined, 'Vista superior', onTopView),
-                _ToolButton(Icons.directions_walk, 'Vista de pasillo', onAisleView),
+                _ToolButton(
+                  Icons.directions_walk,
+                  'Vista de pasillo',
+                  onAisleView,
+                ),
                 _ToolButton(Icons.center_focus_strong, 'Centrar mapa', onReset),
               ],
             ),
@@ -1033,13 +1055,22 @@ class _MapOptionsSheet extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pop(context, const _OpenAssistant()),
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.people_outline),
-              title: const Text('Usuarios'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.pop(context, const _OpenUsers()),
-            ),
+            if (isAdmin) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.storefront_outlined),
+                title: const Text('Panel del trabajador'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, const _OpenStaff()),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.people_outline),
+                title: const Text('Usuarios'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, const _OpenUsers()),
+              ),
+            ],
           ],
         ),
       ),
