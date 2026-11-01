@@ -5,6 +5,7 @@ import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/assistant/presentation/screens/assistant_screen.dart';
+import '../../features/staff/presentation/screens/staff_screen.dart';
 import '../../features/store_navigation/presentation/screens/supermarket_screen.dart';
 import '../../features/users/presentation/screens/users_screen.dart';
 
@@ -19,9 +20,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return isAuthRoute ? null : '/login';
       }
 
-      final isAuthenticated = authState.asData?.value != null;
+      final session = authState.asData?.value;
+      final isAuthenticated = session != null;
       if (!isAuthenticated && !isAuthRoute) return '/login';
-      if (isAuthenticated && isAuthRoute) return '/supermercado';
+      if (isAuthenticated && isAuthRoute) {
+        return session.isAdmin ? '/trabajador' : '/supermercado';
+      }
+      final isStaffRoute =
+          state.matchedLocation == '/trabajador' ||
+          state.matchedLocation == '/usuarios';
+      if (isStaffRoute && !(session?.isAdmin ?? false)) return '/supermercado';
       return null;
     },
     routes: [
@@ -39,6 +47,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/supermercado',
         name: 'supermarket',
         builder: (context, state) => const SupermarketScreen(),
+      ),
+      GoRoute(
+        path: '/trabajador',
+        name: 'staff',
+        builder: (context, state) => const StaffScreen(),
       ),
       GoRoute(
         path: '/usuarios',

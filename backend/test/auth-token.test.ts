@@ -14,15 +14,15 @@ after(() => {
   }
 });
 
-test('the token contains only username and role as identity claims', () => {
-  const token = createAuthToken({ username: 'Ana', role: 'user' });
+test('the token contains only userId, username and role as identity claims', () => {
+  const token = createAuthToken({ userId: 7, username: 'Ana', role: 'user' });
   const identity = verifyAuthToken(token);
 
-  assert.deepEqual(identity, { username: 'Ana', role: 'user' });
+  assert.deepEqual(identity, { userId: 7, username: 'Ana', role: 'user' });
 });
 
 test('rejects tokens with an invalid signature', () => {
-  const token = createAuthToken({ username: 'Ana', role: 'user' });
+  const token = createAuthToken({ userId: 7, username: 'Ana', role: 'user' });
 
   assert.throws(
     () => verifyAuthToken(`${token.slice(0, -1)}x`),

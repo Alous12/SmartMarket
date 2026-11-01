@@ -7,11 +7,13 @@ import {
   listUsers,
   updateUser,
 } from '../controllers/user-controller.js';
+import { requireAdmin } from '../middlewares/auth.js';
 
 export const usersRouter = Router();
 
-usersRouter.get('/', listUsers);
-usersRouter.get('/:userId', getUser);
+// El registro de clientes es público; el resto de la gestión es solo para trabajadores.
 usersRouter.post('/', createUser);
-usersRouter.patch('/:userId', updateUser);
-usersRouter.delete('/:userId', deactivateUser);
+usersRouter.get('/', ...requireAdmin, listUsers);
+usersRouter.get('/:userId', ...requireAdmin, getUser);
+usersRouter.patch('/:userId', ...requireAdmin, updateUser);
+usersRouter.delete('/:userId', ...requireAdmin, deactivateUser);

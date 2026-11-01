@@ -21,20 +21,30 @@ class UserApiException implements Exception {
 }
 
 class UserApi {
-  UserApi({required http.Client client, required Uri baseUri})
-    : this._internal(client, baseUri);
+  UserApi({
+    required http.Client client,
+    required Uri baseUri,
+    Future<String?> Function()? tokenReader,
+  }) : this._internal(client, baseUri, tokenReader);
 
-  UserApi._internal(this._client, Uri baseUri)
+  UserApi._internal(this._client, Uri baseUri, this._tokenReader)
     : _usersUri = Uri.parse(
         '${baseUri.toString().replaceFirst(RegExp(r'/+$'), '')}/users',
       );
 
   final http.Client _client;
+  final Future<String?> Function()? _tokenReader;
   final Uri _usersUri;
   static const _timeout = Duration(seconds: 10);
 
   Future<List<User>> getUsers() async {
-    final response = await _send(() => _client.get(_usersUri));
+    final token = await _tokenReader?.call();
+    final response = await _send(
+      () => _client.get(
+        _usersUri,
+        headers: {if (token != null) 'Authorization': 'Bearer $token'},
+      ),
+    );
     final body = _decodeResponse(response);
     final data = body['data'];
     if (data is! List) {
