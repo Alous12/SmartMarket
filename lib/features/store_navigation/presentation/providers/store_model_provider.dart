@@ -1,8 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/store_providers.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../data/catalog_api.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
+
+/// Sucursal fija del admin (null para usuarios, que pueden elegir).
+final lockedStoreProvider = Provider<Supermarket?>((ref) {
+  final session = ref.watch(authControllerProvider).asData?.value;
+  if (session == null || !session.isAdmin) return null;
+  return Supermarket.values
+      .where((store) => store.assetPath == session.modelUrl)
+      .firstOrNull;
+});
 
 /// Supermercado elegido con los botones de la pantalla.
 final selectedStoreProvider = NotifierProvider<SelectedStoreNotifier, Supermarket>(
@@ -11,17 +22,55 @@ final selectedStoreProvider = NotifierProvider<SelectedStoreNotifier, Supermarke
 
 class SelectedStoreNotifier extends Notifier<Supermarket> {
   @override
-  Supermarket build() => Supermarket.natural;
+  Supermarket build() => ref.watch(lockedStoreProvider) ?? Supermarket.natural;
 
-  void select(Supermarket store) => state = store;
+  void select(Supermarket store) =>
+      state = ref.read(lockedStoreProvider) ?? store;
 }
 
-final storeModelProvider = FutureProvider.autoDispose<StoreModel>(
-  (ref) => ref
-      .watch(storeModelRepositoryProvider)
-      .load(ref.watch(selectedStoreProvider)),
-  retry: (count, error) => null,
-);
+/// Modelo 3D con los datos de producto (nombre, categoría, precio y stock)
+/// de la base de datos. Si el backend no responde, se usan los del modelo.
+final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
+  final store = ref.watch(selectedStoreProvider);
+  final model = await ref.watch(storeModelRepositoryProvider).load(store);
+  final CatalogSnapshot catalog;
+  try {
+    catalog = await ref.watch(catalogApiProvider).loadSnapshot(store.assetPath);
+  } on Object {
+    return model;
+  }
+  final products = <StoreProduct>[];
+  final empty = <StoreProduct>[];
+  for (final product in model.metadata.products) {
+    // Sin espacios cargados en la BD se empareja por sku, como antes.
+    final data = catalog.slots.isEmpty
+        ? catalog.bySku[product.id]
+        : switch (catalog.slots[product.slotId]) {
+            final id? => catalog.byId[id],
+            null => null,
+          };
+    if (data == null) {
+      if (catalog.slots.containsKey(product.slotId)) empty.add(product);
+      continue;
+    }
+    products.add(
+      product.copyWith(
+        name: data.name,
+        category: data.category,
+        price: data.price,
+        stock: data.stock,
+        dbId: data.productId,
+      ),
+    );
+  }
+  return StoreModel(
+    store: model.store,
+    bytes: model.bytes,
+    metadata: model.metadata.withProducts(products),
+    fromCatalog: true,
+    emptySlots: empty,
+  );
+}, retry: (count, error) => null);
 
 /// Nombres editados del supermercado elegido (product_id -> nombre).
 final productNamesProvider =

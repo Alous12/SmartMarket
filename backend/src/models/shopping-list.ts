@@ -38,3 +38,27 @@ export interface ShoppingList {
   updated_at: Date;
   items: ShoppingListItem[];
 }
+
+export type IngredientAvailabilityStatus =
+  | 'AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'NOT_IN_CATALOG';
+
+export interface AvailableIngredientProduct {
+  product_id: number;
+  name: string;
+  stock_quantity: number;
+}
+
+export interface IngredientProductMatch extends AvailableIngredientProduct {
+  ingredient_id: number;
+}
+
+export interface IngredientAvailabilityItem extends ShoppingListItem {
+  availability: IngredientAvailabilityStatus;
+  available_products: AvailableIngredientProduct[];
+}
+
+export type IngredientAvailabilityList = Omit<ShoppingList, 'items'> & {
+  items: IngredientAvailabilityItem[];
+};

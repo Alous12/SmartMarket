@@ -6,8 +6,8 @@ export const login: RequestHandler = async (request, response) => {
   response.json({ data: await authService.login(request.body) });
 };
 
-export const currentUser: RequestHandler = (request, response) => {
+export const currentUser: RequestHandler = async (request, response) => {
   response.json({
-    data: authService.getIdentity(request.get('authorization')),
+    data: await authService.getSession(request.get('authorization')),
   });
 };

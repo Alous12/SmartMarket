@@ -176,7 +176,16 @@ no permiten consultar, editar ni desactivar cuentas `admin`.
 | `GET` | `/api/products` | Listar productos y ubicaciones (requiere autenticación; `branch_id` es opcional) |
 | `GET` | `/api/products/options` | Obtener categorías y secciones activas (requiere rol `admin`) |
 | `POST` | `/api/products` | Crear producto, inventario inicial y ubicación (requiere rol `admin`) |
-| `PATCH` | `/api/products/:productId/location` | Cambiar ubicación del producto (requiere rol `admin`) |
+| `PATCH` | `/api/products/:productId/location` | Cambiar ubicación del producto (requiere rol `admin`; no actualiza `shelf_slots`, usar `slots/move`) |
+| `PATCH` | `/api/products/:productId` | Editar `name`, `price` y/o `stock_quantity` en la sucursal del admin |
+| `DELETE` | `/api/products/:productId` | Quitar el producto de la sucursal del admin y liberar su espacio |
+| `GET` | `/api/products/slots` | Espacios de estantería de la sucursal y producto que ocupa cada uno (`branch_id` solo para no admin) |
+| `POST` | `/api/products/slots/move` | `{from_slot, to_slot}`: mueve el producto a un espacio libre o intercambia con el ocupante (admin) |
+| `POST` | `/api/products/slots/:slotCode/product` | Crea un producto nuevo en un espacio libre (`name`, `price`, `category_id`, `stock_quantity`; admin) |
+
+El admin solo gestiona la sucursal de `users.branch_id`. En la app, **Editar tienda** (menú del mapa)
+muestra un avatar que camina hasta la caja tocada para recoger, mover, intercambiar, editar o quitar
+productos, y ocupar espacios libres (verdes); cada cambio se guarda en la BD vía estos endpoints.
 
 Flutter envía a clientes al mapa del supermercado y a trabajadores al panel
 con las pestañas de agregar productos y cambiar su ubicación. La pestaña de
@@ -197,6 +206,7 @@ genéricos.
 | `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) |
 | `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
 | `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
+| `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Consultar disponibilidad por ingrediente en la sucursal de la petición |
 
 El `PUT` recibe la salida del paso de identificación,
 `{"ingredients": [{"name": "Tomate", "quantity": 3, "unit": "u"}]}`, donde
@@ -209,6 +219,21 @@ guarda en `shopping_lists` y `shopping_list_items` con la sucursal de la
 petición. Repetir el `PUT` reemplaza los elementos y conserva el mismo
 `list_id`. Mientras no exista la IA, este endpoint permite cargar la lista a
 mano; después, la IA llamará al mismo servicio (`generateIngredientList`).
+La consulta de disponibilidad compara cada ingrediente del catálogo con los
+productos activos asociados que tienen inventario positivo en esa sucursal.
+Cada elemento incluye `availability` (`AVAILABLE`, `UNAVAILABLE` o
+`NOT_IN_CATALOG`) y `available_products` con los productos y existencias
+encontrados.
+
+### Datos de las sucursales
+
+`npm run seed` (en `backend/`) carga en MySQL los datos de los modelos 3D
+(`Modelos_3D/*.glb`): secciones, puntos de entrada y cajas, categorías,
+productos, ubicaciones, stock inicial y vínculos con ingredientes. Los `.glb` no
+traen precio ni stock: se usan valores de prueba (precio estable por SKU y 10
+unidades por caja). Se puede repetir sin duplicar datos ni pisar cambios
+hechos desde la app. Cada admin pertenece a una sola sucursal (`users.branch_id`);
+el admin existente quedó asignado a SmartMarket Piloto.
 
 ### Conectar Flutter con el backend
 

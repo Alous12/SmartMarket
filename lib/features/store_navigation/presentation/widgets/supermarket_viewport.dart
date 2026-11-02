@@ -130,11 +130,12 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _command('showNodes', _showNodes);
           _sendRoute(resetView: true);
           _sendNames(widget.productNames, const {});
-        case 'metrics':
+          _sendAvailable();
+          if (_editMode) setEditMode(true, _avatarStart);
           final metrics = RenderMetrics(
-            fps: (data['fps'] as num).toDouble(),
-            drawCalls: (data['drawCalls'] as num).toInt(),
-            triangles: (data['triangles'] as num).toInt(),
+            fps: (data['fps'] as num?)?.toDouble() ?? 0,
+            drawCalls: (data['drawCalls'] as num?)?.toInt() ?? 0,
+            triangles: (data['triangles'] as num?)?.toInt() ?? 0,
             loadMilliseconds: _loadWatch.elapsedMilliseconds,
           );
           widget.metrics.value = metrics;
@@ -147,6 +148,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
           }
         case 'productTapped':
           widget.onProductTapped?.call(data['id'].toString());
+        case 'avatarArrived':
+          final arrival = _arrivals.remove(data['token']);
+          if (arrival != null && !arrival.isCompleted) arrival.complete();
         case 'error':
           _onError(data['message'].toString());
       }
@@ -176,6 +180,31 @@ class SupermarketViewportState extends State<SupermarketViewport>
 
   String _oneFingerMode = 'rotate';
   bool _showNodes = false;
+  bool _editMode = false;
+  String _avatarStart = '';
+  int _walkToken = 0;
+  final _arrivals = <int, Completer<void>>{};
+
+  /// Activa el modo edición: avatar en [startNode] y espacios libres visibles.
+  void setEditMode(bool value, String startNode) {
+    _editMode = value;
+    _avatarStart = startNode;
+    _command('setEditMode', {'on': value, 'start': startNode});
+  }
+
+  /// Camina el avatar por [nodeIds] y termina cuando llega al último.
+  Future<void> walkAvatar(List<String> nodeIds) {
+    final token = ++_walkToken;
+    final done = Completer<void>();
+    _arrivals[token] = done;
+    _command('walkAvatar', {'nodes': nodeIds, 'token': token});
+    return done.future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => _arrivals.remove(token)?.complete(),
+    );
+  }
+
+  void carry(bool value) => _command('carry', value);
 
   void resetView() => _command('reset');
   void zoomBy(double factor) => _command('zoomBy', factor);
@@ -219,6 +248,15 @@ class SupermarketViewportState extends State<SupermarketViewport>
     _command('showRoute', payload);
     if (payload != null && resetView) _command('setView', 'superior');
   }
+
+  /// Oculta en 3D las cajas de productos que ya no están en la base de datos.
+  void _sendAvailable() {
+    if (!widget.model.fromCatalog) return;
+    _command('setAvailableProducts', [
+      for (final product in widget.model.metadata.products) product.id,
+    ]);
+  }
+
   /// Envía los nombres nuevos y restaura los originales de los que se quitaron.
   void _sendNames(Map<String, String> names, Map<String, String> previous) {
     final original = {
@@ -248,6 +286,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
     if (oldWidget.measureContinuously != widget.measureContinuously) {
       _command('setContinuous', widget.measureContinuously);
     }
+    if (!identical(oldWidget.model, widget.model) && _ready) _sendAvailable();
     if (!identical(oldWidget.productNames, widget.productNames)) {
       _sendNames(widget.productNames, oldWidget.productNames);
     }

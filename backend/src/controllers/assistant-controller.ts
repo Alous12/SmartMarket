@@ -28,3 +28,14 @@ export const getIngredients: RequestHandler = async (request, response) => {
   );
   response.json({ data: list });
 };
+
+export const getIngredientAvailability: RequestHandler = async (
+  request,
+  response,
+) => {
+  const availability = await ingredientListService.getIngredientAvailability(
+    request.get('authorization'),
+    parseRequestId(request.params.requestId),
+  );
+  response.json({ data: availability });
+};

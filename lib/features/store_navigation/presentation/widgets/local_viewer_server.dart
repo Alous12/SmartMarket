@@ -19,6 +19,13 @@ class LocalViewerServer {
       '/viewer.js': 'assets/store_viewer/viewer.js',
       '/instancing.js': 'assets/store_viewer/instancing.js',
       '/labels.js': 'assets/store_viewer/labels.js',
+      '/state.js': 'assets/store_viewer/state.js',
+      '/camera.js': 'assets/store_viewer/camera.js',
+      '/products.js': 'assets/store_viewer/products.js',
+      '/avatar.js': 'assets/store_viewer/avatar.js',
+      '/route_overlay.js': 'assets/store_viewer/route_overlay.js',
+      '/commands.js': 'assets/store_viewer/commands.js',
+      '/tap.js': 'assets/store_viewer/tap.js',
       '/vendor/three.module.min.js':
           'assets/store_viewer/vendor/three.module.min.js',
       '/vendor/three.core.min.js':

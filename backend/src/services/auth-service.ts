@@ -14,6 +14,8 @@ export async function login(body: unknown): Promise<{
   token: string;
   username: string;
   role: UserRole;
+  branch_id: number | null;
+  model_3d_url: string | null;
 }> {
   if (!isRecord(body)) {
     throw new HttpError(400, 'El cuerpo de la solicitud debe ser un objeto JSON.');
@@ -48,6 +50,7 @@ export async function login(body: unknown): Promise<{
     throw new HttpError(401, 'Correo o contraseña incorrectos.');
   }
 
+  const branch = await userRepository.findBranchOf(user.user_id);
   return {
     token: createAuthToken({
       userId: user.user_id,
@@ -56,6 +59,19 @@ export async function login(body: unknown): Promise<{
     }),
     username: user.name,
     role: user.role,
+    branch_id: branch?.branch_id ?? null,
+    model_3d_url: branch?.model_3d_url ?? null,
+  };
+}
+
+/** Identidad del token más la sucursal actual del usuario. */
+export async function getSession(authorization: string | undefined) {
+  const identity = getIdentity(authorization);
+  const branch = await userRepository.findBranchOf(identity.userId);
+  return {
+    ...identity,
+    branch_id: branch?.branch_id ?? null,
+    model_3d_url: branch?.model_3d_url ?? null,
   };
 }
 

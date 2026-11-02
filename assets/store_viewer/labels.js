@@ -75,7 +75,7 @@ export class ProductLabels {
         this.cells.set(productId, this.cells.size);
         this.names.set(productId, name);
       }
-      quads.push({face: boxFrontFace(mesh), cell: this.cells.get(productId)});
+      quads.push({face: boxFrontFace(mesh), cell: this.cells.get(productId), productId});
     }
     const positions = new Float32Array(quads.length * 12);
     const uvs = new Float32Array(quads.length * 8);
@@ -102,6 +102,8 @@ export class ProductLabels {
       const k = q * 4;
       indices.set([k, k + 1, k + 2, k, k + 2, k + 3], q * 6);
     });
+    this.indices = indices;
+    this.quadProducts = quads.map(quad => quad.productId);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
@@ -113,6 +115,16 @@ export class ProductLabels {
     for (const id of this.cells.keys()) this.draw(id);
     this.texture.needsUpdate = true;
     return this.mesh;
+  }
+
+  /** Oculta las placas de los productos indicados (triángulos degenerados). */
+  setHidden(hidden) {
+    if (!this.mesh) return;
+    this.quadProducts.forEach((productId, q) => {
+      const k = q * 4;
+      this.indices.set(hidden.has(productId) ? [0, 0, 0, 0, 0, 0] : [k, k + 1, k + 2, k, k + 2, k + 3], q * 6);
+    });
+    this.mesh.geometry.index.needsUpdate = true;
   }
 
   setName(productId, name) {

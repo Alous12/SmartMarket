@@ -19,24 +19,34 @@ class AuthSession {
     required this.token,
     required this.username,
     required this.role,
+    this.modelUrl,
   });
 
   final String token;
   final String username;
   final String role;
 
+  /// Modelo 3D de la sucursal asignada al usuario (solo admins).
+  final String? modelUrl;
+
   bool get isAdmin => role == 'admin';
   factory AuthSession.fromJson(Map<String, dynamic> json, {String? token}) {
     final accessToken = token ?? json['token'];
     final username = json['username'];
     final role = json['role'];
+    final modelUrl = json['model_3d_url'];
     if (accessToken is! String ||
         username is! String ||
         role is! String ||
         (role != 'user' && role != 'admin')) {
       throw const AuthApiException('El servidor devolvió una sesión inválida.');
     }
-    return AuthSession(token: accessToken, username: username, role: role);
+    return AuthSession(
+      token: accessToken,
+      username: username,
+      role: role,
+      modelUrl: modelUrl is String ? modelUrl : null,
+    );
   }
 }
 
