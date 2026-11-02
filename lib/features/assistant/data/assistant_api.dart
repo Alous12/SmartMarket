@@ -28,23 +28,48 @@ class AssistantApi {
   final Uri _requestsUri;
   static const _timeout = Duration(seconds: 10);
 
-  /// Envía el texto tal como lo escribió el usuario.
+  /// Envía el texto tal como lo escribió el usuario, junto con el
+  /// supermercado donde comprará los ingredientes.
   Future<AssistantRequest> sendRequest({
     required String token,
     required String prompt,
+    int? branchId,
+  }) {
+    return _send(
+      () => _client.post(
+        _requestsUri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'prompt': prompt, 'branch_id': ?branchId}),
+      ),
+      fallback: 'No se pudo enviar tu petición.',
+    );
+  }
+
+  /// Consulta el estado de la petición y, cuando la IA termina, la receta
+  /// identificada y su lista de ingredientes.
+  Future<AssistantRequest> fetchRequest({
+    required String token,
+    required int requestId,
+  }) {
+    return _send(
+      () => _client.get(
+        _requestsUri.replace(path: '${_requestsUri.path}/$requestId'),
+        headers: {'Authorization': 'Bearer $token'},
+      ),
+      fallback: 'No se pudo consultar tu petición.',
+    );
+  }
+
+  Future<AssistantRequest> _send(
+    Future<http.Response> Function() send, {
+    required String fallback,
   }) async {
     http.Response response;
     try {
-      response = await _client
-          .post(
-            _requestsUri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode({'prompt': prompt}),
-          )
-          .timeout(_timeout);
+      response = await send().timeout(_timeout);
     } on SocketException {
       throw const AssistantApiException(
         'No se pudo conectar con el backend. Verifica que esté activo.',
@@ -74,9 +99,7 @@ class AssistantApi {
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final error = decoded['error'];
-      throw AssistantApiException(
-        error is String ? error : 'No se pudo enviar tu petición.',
-      );
+      throw AssistantApiException(error is String ? error : fallback);
     }
 
     try {

@@ -203,7 +203,8 @@ genéricos.
 
 | Método | Ruta | Descripción |
 | --- | --- | --- |
-| `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) |
+| `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) e iniciar su análisis con IA |
+| `GET` | `/api/assistant/requests/:requestId` | Consultar el estado, la receta identificada (`recipe_name`), el mensaje (`response_message`) y los `ingredients` |
 | `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
 | `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
 | `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Consultar disponibilidad por ingrediente en la sucursal de la petición |
@@ -217,13 +218,38 @@ la cantidad queda en `null`. Cada elemento se relaciona con `ingredients`:
 `ingredient_id` es `null` si el ingrediente no está en el catálogo. La lista se
 guarda en `shopping_lists` y `shopping_list_items` con la sucursal de la
 petición. Repetir el `PUT` reemplaza los elementos y conserva el mismo
-`list_id`. Mientras no exista la IA, este endpoint permite cargar la lista a
-mano; después, la IA llamará al mismo servicio (`generateIngredientList`).
+`list_id`. Este endpoint permite cargar la lista a mano; el análisis con IA usa
+el mismo servicio (`generateIngredientList`).
 La consulta de disponibilidad compara cada ingrediente del catálogo con los
 productos activos asociados que tienen inventario positivo en esa sucursal.
 Cada elemento incluye `availability` (`AVAILABLE`, `UNAVAILABLE` o
 `NOT_IN_CATALOG`) y `available_products` con los productos y existencias
 encontrados.
+
+#### Análisis con IA (Gemini)
+
+Configura `GEMINI_API_KEY` en `backend/.env` (clave gratuita en
+[Google AI Studio](https://aistudio.google.com/apikey)); `GEMINI_MODEL` es
+opcional y por defecto usa `gemini-3.5-flash-lite`. La clave solo vive en el
+backend: la app nunca la recibe.
+
+El `POST` responde de inmediato con `status: PROCESSING` y el backend analiza la
+petición en segundo plano (`backend/src/services/ai/`):
+
+1. Gemini recibe el texto tal cual lo escribió el usuario, con instrucciones que
+   lo limitan a recetas y un esquema JSON obligatorio para su respuesta.
+2. Si el texto no es una receta, la petición queda `REJECTED` con un mensaje.
+3. Si es una receta, se guarda `recipe_name` y sus ingredientes se entregan a
+   `generateIngredientList`, que los registra uno por uno en la sucursal de la
+   petición; la petición queda `COMPLETED`.
+4. Ante cualquier error (sin clave, límite de la cuota gratuita, respuesta
+   inválida) queda `FAILED` con un `response_message` para el usuario y el
+   detalle técnico en el log del servidor.
+
+La IA recibe el catálogo de `ingredients` para usar los mismos nombres, de modo
+que la lista se pueda cruzar con el inventario. La app envía el supermercado
+elegido en el mapa como `branch_id` y consulta el `GET` cada 2 segundos hasta
+que la petición termina.
 
 ### Datos de las sucursales
 

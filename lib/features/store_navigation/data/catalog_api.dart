@@ -141,12 +141,17 @@ class CatalogApi {
     };
   }
 
-  Future<CatalogSnapshot> loadSnapshot(String assetPath) async {
+  /// Id de la sucursal cuyo modelo 3D es [assetPath].
+  Future<int> branchIdFor(String assetPath) async {
     final branches = await _get('/branches') as List;
     final branch = branches.cast<Map<String, dynamic>>().firstWhere(
       (b) => b['model_3d_url'] == assetPath,
     );
-    final branchId = branch['branch_id'];
+    return (branch['branch_id'] as num).toInt();
+  }
+
+  Future<CatalogSnapshot> loadSnapshot(String assetPath) async {
+    final branchId = await branchIdFor(assetPath);
     final products = await _get('/branches/$branchId/products');
     final slots = await _get('/products/slots?branch_id=$branchId');
     final bySku = {

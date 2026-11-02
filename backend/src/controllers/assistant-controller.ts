@@ -12,6 +12,14 @@ export const createRequest: RequestHandler = async (request, response) => {
   response.status(201).json({ data: assistantRequest });
 };
 
+export const getRequest: RequestHandler = async (request, response) => {
+  const assistantRequest = await assistantService.getRequest(
+    request.get('authorization'),
+    parseRequestId(request.params.requestId),
+  );
+  response.json({ data: assistantRequest });
+};
+
 export const saveIngredients: RequestHandler = async (request, response) => {
   const list = await ingredientListService.saveIdentifiedIngredients(
     request.get('authorization'),

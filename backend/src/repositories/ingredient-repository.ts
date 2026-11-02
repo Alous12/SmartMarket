@@ -30,6 +30,14 @@ export async function findByNames(
   return rows.map((row) => ({ ingredient_id: row.ingredient_id, name: row.name }));
 }
 
+/** Nombres de todo el catálogo de ingredientes, en orden alfabético. */
+export async function findAllNames(): Promise<string[]> {
+  const [rows] = await pool.query<IngredientRow[]>(
+    'SELECT ingredient_id, name FROM ingredients ORDER BY name',
+  );
+  return rows.map((row) => row.name);
+}
+
 export async function findAvailableProducts(
   branchId: number,
   ingredientIds: number[],

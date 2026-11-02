@@ -8,16 +8,18 @@ datasource db {
 }
 
 model assistant_requests {
-  request_id     Int                       @id @default(autoincrement())
-  user_id        Int
-  branch_id      Int?
-  prompt         String                    @db.Text
-  status         assistant_requests_status @default(RECEIVED)
-  created_at     DateTime                  @default(now()) @db.Timestamp(0)
-  updated_at     DateTime                  @default(now()) @db.Timestamp(0)
-  users          users                     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_assistant_requests_user")
-  branches       branches?                 @relation(fields: [branch_id], references: [branch_id], map: "fk_assistant_requests_branch")
-  shopping_lists shopping_lists?
+  request_id       Int                       @id @default(autoincrement())
+  user_id          Int
+  branch_id        Int?
+  prompt           String                    @db.Text
+  status           assistant_requests_status @default(RECEIVED)
+  recipe_name      String?                   @db.VarChar(150)
+  response_message String?                   @db.VarChar(500)
+  created_at       DateTime                  @default(now()) @db.Timestamp(0)
+  updated_at       DateTime                  @default(now()) @db.Timestamp(0)
+  users            users                     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_assistant_requests_user")
+  branches         branches?                 @relation(fields: [branch_id], references: [branch_id], map: "fk_assistant_requests_branch")
+  shopping_lists   shopping_lists?
 
   @@index([user_id], map: "idx_assistant_requests_user")
   @@index([branch_id], map: "idx_assistant_requests_branch")
@@ -134,7 +136,7 @@ model products {
   product_ingredients                                                    product_ingredients[]
   product_locations                                                      product_locations[]
   shelf_slots                                                            shelf_slots[]
-  categories                                                              categories            @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
+  categories                                                             categories            @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
   substitution_events_substitution_events_selected_product_idToproducts  substitution_events[] @relation("substitution_events_selected_product_idToproducts")
   substitution_events_substitution_events_suggested_product_idToproducts substitution_events[] @relation("substitution_events_suggested_product_idToproducts")
 
@@ -325,6 +327,7 @@ enum assistant_requests_status {
   RECEIVED
   PROCESSING
   COMPLETED
+  REJECTED
   FAILED
 }
 

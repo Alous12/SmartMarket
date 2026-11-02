@@ -19,6 +19,9 @@ class AssistantScreen extends ConsumerStatefulWidget {
 }
 
 class _AssistantScreenState extends ConsumerState<AssistantScreen> {
+  /// Consultas máximas mientras la IA procesa (unos 90 s con el intervalo por defecto).
+  static const _maxPolls = 45;
+
   final _requestController = TextEditingController();
   final _sentRequests = <AssistantRequest>[];
   bool _sending = false;
@@ -42,14 +45,18 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         return;
       }
       final token = session.token;
+      final branchId = await ref.read(assistantBranchIdProvider.future);
+      if (!mounted) return;
       final request = await ref
           .read(assistantApiProvider)
-          .sendRequest(token: token, prompt: prompt);
+          .sendRequest(token: token, prompt: prompt, branchId: branchId);
       if (!mounted) return;
       setState(() {
         _sentRequests.add(request);
         _requestController.clear();
       });
+      // Se mantiene _sending hasta que la IA responda: una consulta a la vez.
+      await _waitForAnswer(token, request);
     } on AssistantApiException catch (error) {
       if (mounted) _showError(error.message);
     } on AuthApiException catch (error) {
@@ -59,14 +66,53 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     }
   }
 
+  /// Consulta la petición hasta que la IA identifique la receta y su lista.
+  Future<void> _waitForAnswer(String token, AssistantRequest request) async {
+    final interval = ref.read(assistantPollIntervalProvider);
+    var current = request;
+    for (var poll = 0; poll < _maxPolls && !current.isFinished; poll++) {
+      await Future<void>.delayed(interval);
+      if (!mounted) return;
+      try {
+        current = await ref
+            .read(assistantApiProvider)
+            .fetchRequest(token: token, requestId: request.id);
+      } on AssistantApiException {
+        // Un fallo puntual de red no detiene la espera.
+        continue;
+      }
+      if (!mounted) return;
+      _updateRequest(current);
+    }
+    if (!current.isFinished && mounted) {
+      _updateRequest(
+        AssistantRequest(
+          id: current.id,
+          prompt: current.prompt,
+          status: AssistantRequestStatus.failed,
+          message:
+              'El asistente está tardando más de lo normal. Inténtalo de nuevo en unos minutos.',
+        ),
+      );
+    }
+  }
+
+  void _updateRequest(AssistantRequest request) {
+    final index = _sentRequests.indexWhere((sent) => sent.id == request.id);
+    if (index == -1) return;
+    setState(() => _sentRequests[index] = request);
+  }
+
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
+    // Mantiene cargada la sucursal elegida para enviarla con la petición.
+    ref.watch(assistantBranchIdProvider);
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -79,9 +125,18 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                 itemCount: _sentRequests.length,
                 separatorBuilder: (context, index) =>
                     const SizedBox(height: 12),
-                itemBuilder: (context, index) => _UserMessage(
-                  text: _sentRequests[_sentRequests.length - 1 - index].prompt,
-                ),
+                itemBuilder: (context, index) {
+                  final request =
+                      _sentRequests[_sentRequests.length - 1 - index];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _UserMessage(text: request.prompt),
+                      const SizedBox(height: 12),
+                      _AssistantReply(request: request),
+                    ],
+                  );
+                },
               ),
             ),
             Padding(
@@ -129,6 +184,134 @@ class _UserMessage extends StatelessWidget {
   }
 }
 
+/// Respuesta del asistente: progreso, receta con su lista de ingredientes o
+/// el motivo por el que no se pudo atender la petición.
+class _AssistantReply extends StatelessWidget {
+  const _AssistantReply({required this.request});
+
+  final AssistantRequest request;
+
+  static String _quantity(AssistantIngredient ingredient) {
+    final quantity = ingredient.quantity;
+    if (quantity == null) return 'al gusto';
+    final amount = quantity == quantity.roundToDouble()
+        ? quantity.toInt().toString()
+        : quantity.toString();
+    return [amount, ?ingredient.unit].join(' ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recipeName = request.recipeName;
+    final Widget content = switch (request.status) {
+      AssistantRequestStatus.received ||
+      AssistantRequestStatus.processing => Row(
+        children: [
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppTheme.green,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              recipeName == null
+                  ? 'Identificando la receta…'
+                  : 'Preparando la lista de $recipeName…',
+              style: const TextStyle(color: AppTheme.muted, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+      AssistantRequestStatus.completed => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.restaurant_menu,
+                size: 20,
+                color: AppTheme.green,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  recipeName ?? 'Receta',
+                  style: const TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Ingredientes (${request.ingredients.length})',
+            style: const TextStyle(color: AppTheme.muted, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          for (final ingredient in request.ingredients)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('•  ', style: TextStyle(color: AppTheme.green)),
+                  Expanded(
+                    child: Text(
+                      ingredient.name,
+                      style: const TextStyle(color: AppTheme.ink, fontSize: 16),
+                    ),
+                  ),
+                  Text(
+                    _quantity(ingredient),
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 15),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      AssistantRequestStatus.rejected || AssistantRequestStatus.failed => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 20, color: AppTheme.muted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              request.message ?? 'No se pudo procesar tu petición.',
+              style: const TextStyle(color: AppTheme.ink, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+    };
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.85,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: AppTheme.border),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: content,
+        ),
+      ),
+    );
+  }
+}
+
 class _AssistantHeader extends StatelessWidget {
   const _AssistantHeader();
 
@@ -142,7 +325,9 @@ class _AssistantHeader extends StatelessWidget {
             message: 'Volver',
             child: Material(
               color: Colors.white,
-              shape: const CircleBorder(side: BorderSide(color: AppTheme.border)),
+              shape: const CircleBorder(
+                side: BorderSide(color: AppTheme.border),
+              ),
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: () => context.canPop()
@@ -163,7 +348,11 @@ class _AssistantHeader extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.auto_awesome, size: 20, color: Color(0xFF6BB33F)),
+                    Icon(
+                      Icons.auto_awesome,
+                      size: 20,
+                      color: Color(0xFF6BB33F),
+                    ),
                     SizedBox(width: 8),
                     Flexible(
                       child: Text(
@@ -223,7 +412,10 @@ class _RequestField extends StatelessWidget {
               hintStyle: TextStyle(color: AppTheme.muted, fontSize: 17),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 17),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 17,
+              ),
               border: OutlineInputBorder(
                 borderRadius: radius,
                 borderSide: BorderSide(color: AppTheme.border),

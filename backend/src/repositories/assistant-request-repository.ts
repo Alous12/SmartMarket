@@ -14,6 +14,8 @@ const columns = `
   branch_id,
   prompt,
   status,
+  recipe_name,
+  response_message,
   created_at,
   updated_at
 `;
@@ -33,6 +35,8 @@ export async function findById(
     branch_id: row.branch_id,
     prompt: row.prompt,
     status: row.status,
+    recipe_name: row.recipe_name,
+    response_message: row.response_message,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -67,4 +71,25 @@ export async function updateStatus(
     [status, requestId],
   );
   return findById(requestId);
+}
+
+/**
+ * Guarda el resultado del análisis de la IA: estado final o intermedio, receta
+ * identificada y mensaje para el usuario.
+ */
+export async function saveAnalysis(
+  requestId: number,
+  analysis: {
+    status: AssistantRequestStatus;
+    recipeName: string | null;
+    message: string | null;
+  },
+): Promise<void> {
+  await pool.execute(
+    `UPDATE assistant_requests
+     SET status = ?, recipe_name = ?, response_message = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE request_id = ?`,
+    [analysis.status, analysis.recipeName, analysis.message, requestId],
+  );
 }
