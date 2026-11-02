@@ -213,6 +213,51 @@ export async function move(
   }
 }
 
+export async function findAdminBranch(userId: number): Promise<number | null> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT branch_id FROM users WHERE user_id = ? LIMIT 1',
+    [userId],
+  );
+  return rows.length > 0 ? ((rows[0].branch_id as number | null) ?? null) : null;
+}
+
+/** Devuelve false si el producto no estaba en esa sucursal. */
+export async function removeFromBranch(
+  productId: number,
+  branchId: number,
+): Promise<boolean> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [locations] = await connection.execute<ResultSetHeader>(
+      `DELETE pl FROM product_locations pl
+       JOIN sections s ON s.section_id = pl.section_id
+       WHERE pl.product_id = ? AND s.branch_id = ?`,
+      [productId, branchId],
+    );
+    const [inventory] = await connection.execute<ResultSetHeader>(
+      'DELETE FROM inventory WHERE product_id = ? AND branch_id = ?',
+      [productId, branchId],
+    );
+    const removed = locations.affectedRows + inventory.affectedRows > 0;
+    // Se conserva la fila (historial); solo se desactiva si ya no está en ninguna sucursal.
+    await connection.execute(
+      `UPDATE products SET status = FALSE
+       WHERE product_id = ?
+         AND NOT EXISTS (SELECT 1 FROM product_locations WHERE product_id = ?)
+         AND NOT EXISTS (SELECT 1 FROM inventory WHERE product_id = ?)`,
+      [productId, productId, productId],
+    );
+    await connection.commit();
+    return removed;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 export async function listOptions(): Promise<{
   categories: RowDataPacket[];
   sections: RowDataPacket[];

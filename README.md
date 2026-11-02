@@ -216,6 +216,16 @@ Cada elemento incluye `availability` (`AVAILABLE`, `UNAVAILABLE` o
 `NOT_IN_CATALOG`) y `available_products` con los productos y existencias
 encontrados.
 
+### Datos de las sucursales
+
+`npm run seed` (en `backend/`) carga en MySQL los datos de los modelos 3D
+(`Modelos_3D/*.glb`): secciones, puntos de entrada y cajas, categorías,
+productos, ubicaciones, stock inicial y vínculos con ingredientes. Los `.glb` no
+traen precio ni stock: se usan valores de prueba (precio estable por SKU y 10
+unidades por caja). Se puede repetir sin duplicar datos ni pisar cambios
+hechos desde la app. Cada admin pertenece a una sola sucursal (`users.branch_id`);
+el admin existente quedó asignado a SmartMarket Piloto.
+
 ### Conectar Flutter con el backend
 
 Flutter consume la API HTTP; el teléfono no se conecta directamente a MySQL.

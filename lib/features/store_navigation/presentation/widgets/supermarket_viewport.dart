@@ -130,6 +130,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _command('showNodes', _showNodes);
           _sendRoute(resetView: true);
           _sendNames(widget.productNames, const {});
+          _sendAvailable();
         case 'metrics':
           final metrics = RenderMetrics(
             fps: (data['fps'] as num).toDouble(),
@@ -219,6 +220,14 @@ class SupermarketViewportState extends State<SupermarketViewport>
     _command('showRoute', payload);
     if (payload != null && resetView) _command('setView', 'superior');
   }
+  /// Oculta en 3D las cajas de productos que ya no están en la base de datos.
+  void _sendAvailable() {
+    if (!widget.model.fromCatalog) return;
+    _command('setAvailableProducts', [
+      for (final product in widget.model.metadata.products) product.id,
+    ]);
+  }
+
   /// Envía los nombres nuevos y restaura los originales de los que se quitaron.
   void _sendNames(Map<String, String> names, Map<String, String> previous) {
     final original = {
@@ -248,6 +257,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
     if (oldWidget.measureContinuously != widget.measureContinuously) {
       _command('setContinuous', widget.measureContinuously);
     }
+    if (!identical(oldWidget.model, widget.model) && _ready) _sendAvailable();
     if (!identical(oldWidget.productNames, widget.productNames)) {
       _sendNames(widget.productNames, oldWidget.productNames);
     }

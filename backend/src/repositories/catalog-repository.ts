@@ -11,7 +11,7 @@ import type {
   Section,
 } from '../models/catalog.js';
 
-const maxProducts = 200;
+const maxProducts = 500;
 
 // mysql2 devuelve los DECIMAL como texto; la API los expone como números.
 const toNumber = (value: unknown): number => Number(value);

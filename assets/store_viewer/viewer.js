@@ -15,6 +15,8 @@ let radius = 30;
 const home = {position: new THREE.Vector3(), target: new THREE.Vector3()};
 const productBoxes = [];                 // mallas originales (invisibles) para el toque
 const products = new Map();              // product_id -> {name, category, center, normal}
+const boxMeshes = [];                    // {mesh, productId} de todas las cajas del modelo
+let meshBindings = new Map();            // uuid de malla original -> {mesh, index} visible
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -58,6 +60,8 @@ function disposeViewer() {
   releaseObjects(scene);
   scene?.clear();
   productBoxes.length = 0;
+  boxMeshes.length = 0;
+  meshBindings = new Map();
   products.clear();
   renderer?.dispose();
   renderer?.forceContextLoss();
@@ -184,6 +188,7 @@ function collectProducts(root) {
     if (data.kind === 'product_box' && object.isMesh && data.product_id) {
       const id = String(data.product_id);
       productBoxes.push(object);
+      boxMeshes.push({mesh: object, productId: id});
       boxes.push({mesh: object, productId: id, name: String(data.display_name ?? id)});
     }
   });
@@ -482,6 +487,7 @@ async function setup() {
   if (disposed) { releaseObjects(gltf.scene); return; }
   if (gltf.animations.length) throw new Error('Esta vista requiere un modelo estático.');
   const optimized = instanceStoreMeshes(gltf.scene);
+  meshBindings = optimized.bindings;
   scene.add(gltf.scene, optimized.visuals);
   bounds.setFromObject(optimized.visuals);
   if (bounds.isEmpty()) throw new Error('El modelo no contiene geometría visible.');
@@ -564,6 +570,30 @@ async function setup() {
       }
       requestRender();
       return changed;
+    },
+    /** Muestra solo las cajas de estos productos; el resto se oculta (borrados en la BD). */
+    setAvailableProducts(ids) {
+      const available = new Set((ids ?? []).map(String));
+      const hidden = new Set();
+      productBoxes.length = 0;
+      const touched = new Set();
+      const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+      for (const {mesh, productId} of boxMeshes) {
+        const show = available.has(productId);
+        if (show) productBoxes.push(mesh); else hidden.add(productId);
+        const binding = meshBindings.get(mesh.uuid);
+        if (!binding) continue;
+        if (binding.index === null) {
+          binding.mesh.visible = show;
+        } else {
+          binding.mesh.setMatrixAt(binding.index, show ? mesh.matrixWorld : zero);
+          touched.add(binding.mesh);
+        }
+      }
+      touched.forEach(visual => { visual.instanceMatrix.needsUpdate = true; });
+      labels.setHidden(hidden);
+      requestRender();
+      return hidden.size;
     },
     setProductName(id, name) { return this.setProductNames({[id]: name}); },
     selectProduct(id, focus = true) { return selectProduct(id == null ? null : String(id), focus); },

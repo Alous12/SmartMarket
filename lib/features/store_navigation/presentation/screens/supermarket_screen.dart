@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../../app/providers/store_providers.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
@@ -111,10 +113,57 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       context,
       product: product,
       currentName: names[product.id] ?? product.name,
+      canRemove:
+          product.dbId != null &&
+          (ref.read(authControllerProvider).asData?.value?.isAdmin ?? false),
     );
     if (!mounted) return;
-    if (result != null) {
+    if (result == productRemoveRequest) {
+      await _removeProduct(product);
+    } else if (result != null) {
       await ref.read(productNamesProvider.notifier).rename(product, result);
+    }
+  }
+
+  Future<void> _removeProduct(StoreProduct product) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quitar producto'),
+        content: Text(
+          '¿Quitar "${product.name}" de la sucursal? '
+          'Se eliminará su stock y ubicación en la base de datos.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Quitar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(catalogApiProvider).removeProduct(product.dbId!);
+      ref.invalidate(storeModelProvider);
+      messenger.showSnackBar(
+        SnackBar(content: Text('"${product.name}" se quitó de la sucursal.')),
+      );
+    } on Object catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            error is http.ClientException
+                ? error.message
+                : 'No se pudo quitar el producto.',
+          ),
+        ),
+      );
     }
   }
 
@@ -356,6 +405,10 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   Widget _buildNavigation(BuildContext context, StoreModel model) {
     _startDemoRouteIfNeeded(model);
     final names = ref.watch(productNamesProvider).value ?? const {};
+    final viewerNames = {
+      for (final product in model.metadata.products) product.id: product.name,
+      ...names,
+    };
     final session = ref.watch(navigationSessionProvider);
     final stops = session.stops;
     final current = session.current;
@@ -369,7 +422,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           model: model,
           metrics: _metrics,
           measureContinuously: _showMetrics,
-          productNames: names,
+          productNames: viewerNames,
           onProductTapped: (id) => _editProduct(model, id),
           onRetry: _retryViewer,
           routePlan: session.plan,

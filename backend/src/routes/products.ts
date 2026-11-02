@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 
-import { authenticate, requireAdmin } from '../middlewares/auth.js';
+import { authenticate, identityOf, requireAdmin } from '../middlewares/auth.js';
 import * as productService from '../services/product-service.js';
 
 export const productsRouter = Router();
@@ -28,7 +28,14 @@ const move: RequestHandler = async (request, response) => {
   });
 };
 
+const remove: RequestHandler = async (request, response) => {
+  const productId = productService.parseProductId(request.params.productId);
+  await productService.removeProduct(productId, identityOf(response).userId);
+  response.status(204).end();
+};
+
 productsRouter.get('/', authenticate, list);
 productsRouter.get('/options', ...requireAdmin, options);
 productsRouter.post('/', ...requireAdmin, create);
 productsRouter.patch('/:productId/location', ...requireAdmin, move);
+productsRouter.delete('/:productId', ...requireAdmin, remove);

@@ -149,6 +149,16 @@ export async function createProduct(rawBody: unknown) {
   return productRepository.findLocations(productId);
 }
 
+export async function removeProduct(productId: number, adminId: number) {
+  const branchId = await productRepository.findAdminBranch(adminId);
+  if (branchId === null) {
+    throw new HttpError(403, 'Tu usuario no tiene una sucursal asignada.');
+  }
+  if (!(await productRepository.removeFromBranch(productId, branchId))) {
+    throw new HttpError(404, 'El producto no está en tu sucursal.');
+  }
+}
+
 export async function moveProduct(productId: number, rawBody: unknown) {
   const body = asRecord(rawBody);
   rejectUnexpected(body, [

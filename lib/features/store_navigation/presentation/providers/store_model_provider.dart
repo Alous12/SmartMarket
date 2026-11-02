@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/store_providers.dart';
+import '../../data/catalog_api.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
 
@@ -16,12 +17,35 @@ class SelectedStoreNotifier extends Notifier<Supermarket> {
   void select(Supermarket store) => state = store;
 }
 
-final storeModelProvider = FutureProvider.autoDispose<StoreModel>(
-  (ref) => ref
-      .watch(storeModelRepositoryProvider)
-      .load(ref.watch(selectedStoreProvider)),
-  retry: (count, error) => null,
-);
+/// Modelo 3D con los datos de producto (nombre, categoría, precio y stock)
+/// de la base de datos. Si el backend no responde, se usan los del modelo.
+final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
+  final store = ref.watch(selectedStoreProvider);
+  final model = await ref.watch(storeModelRepositoryProvider).load(store);
+  final Map<String, CatalogProduct> catalog;
+  try {
+    catalog = await ref.watch(catalogApiProvider).loadProducts(store.assetPath);
+  } on Object {
+    return model;
+  }
+  final products = [
+    for (final product in model.metadata.products)
+      if (catalog[product.id] case final data?)
+        product.copyWith(
+          name: data.name,
+          category: data.category,
+          price: data.price,
+          stock: data.stock,
+          dbId: data.productId,
+        ),
+  ];
+  return StoreModel(
+    store: model.store,
+    bytes: model.bytes,
+    metadata: model.metadata.withProducts(products),
+    fromCatalog: true,
+  );
+}, retry: (count, error) => null);
 
 /// Nombres editados del supermercado elegido (product_id -> nombre).
 final productNamesProvider =

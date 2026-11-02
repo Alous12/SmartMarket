@@ -12,27 +12,40 @@ class ProductListAction {
   final bool edit;
 }
 
+/// Resultado de [showProductEditor] cuando el admin pide quitar el producto.
+const productRemoveRequest = '\u0000remove';
+
 /// Diálogo para renombrar un producto. Devuelve el nombre nuevo, una cadena
-/// vacía para volver al nombre original, o null si se cancela.
+/// vacía para volver al nombre original, [productRemoveRequest] para quitarlo
+/// de la sucursal, o null si se cancela.
 Future<String?> showProductEditor(
   BuildContext context, {
   required StoreProduct product,
   required String currentName,
+  bool canRemove = false,
 }) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) =>
-        _ProductEditor(product: product, currentName: currentName),
+    builder: (context) => _ProductEditor(
+      product: product,
+      currentName: currentName,
+      canRemove: canRemove,
+    ),
   );
 }
 
 class _ProductEditor extends StatefulWidget {
-  const _ProductEditor({required this.product, required this.currentName});
+  const _ProductEditor({
+    required this.product,
+    required this.currentName,
+    required this.canRemove,
+  });
 
   final StoreProduct product;
   final String currentName;
+  final bool canRemove;
 
   @override
   State<_ProductEditor> createState() => _ProductEditorState();
@@ -96,6 +109,18 @@ class _ProductEditorState extends State<_ProductEditor> {
               style: theme.textTheme.bodySmall,
             ),
           const SizedBox(height: 12),
+          if (widget.canRemove)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.pop(context, productRemoveRequest),
+                style: TextButton.styleFrom(
+                  foregroundColor: theme.colorScheme.error,
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Quitar de la sucursal'),
+              ),
+            ),
           Row(
             children: [
               if (changed)
@@ -234,6 +259,10 @@ class _ProductListState extends ConsumerState<_ProductList> {
                 subtitle: Text(
                   [
                     if (product.category.isNotEmpty) product.category,
+                    if (product.stock != null)
+                      product.stock! > 0
+                          ? 'Stock: ${product.stock!.toStringAsFixed(product.stock! % 1 == 0 ? 0 : 2)}'
+                          : 'Agotado',
                     if (renamed != null) 'antes: ${product.name}',
                   ].join(' · '),
                 ),
