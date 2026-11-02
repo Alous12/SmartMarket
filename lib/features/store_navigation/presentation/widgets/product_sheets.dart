@@ -267,7 +267,9 @@ class _ProductListState extends ConsumerState<_ProductList> {
                   ].join(' · '),
                 ),
                 leading: Icon(
-                  renamed == null ? Icons.inventory_2_outlined : Icons.edit_note,
+                  renamed == null
+                      ? Icons.inventory_2_outlined
+                      : Icons.edit_note,
                 ),
                 trailing: IconButton(
                   tooltip: 'Renombrar',

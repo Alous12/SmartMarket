@@ -24,7 +24,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isAuthenticated = session != null;
       if (!isAuthenticated && !isAuthRoute) return '/login';
       if (isAuthenticated && isAuthRoute) {
-        return session.isAdmin ? '/trabajador' : '/supermercado';
+        return '/supermercado';
       }
       final isStaffRoute =
           state.matchedLocation == '/trabajador' ||

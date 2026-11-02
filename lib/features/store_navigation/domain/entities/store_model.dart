@@ -30,11 +30,15 @@ class StoreModel {
     required this.bytes,
     required this.metadata,
     this.fromCatalog = false,
+    this.emptySlots = const [],
   });
 
   final Supermarket store;
   final Uint8List bytes;
   final StoreModelMetadata metadata;
+
+  /// Espacios del modelo sin producto en la base de datos (cajas ocultas).
+  final List<StoreProduct> emptySlots;
 
   /// Verdadero si `metadata.products` viene de la base de datos: solo esos
   /// productos existen en la sucursal.
@@ -50,6 +54,7 @@ class StoreProduct {
     this.price,
     this.stock,
     this.dbId,
+    this.slotId = '',
   });
 
   final String id;
@@ -58,6 +63,9 @@ class StoreProduct {
   final String routeNode;
   final double? price;
   final double? stock;
+
+  /// Espacio de estantería del modelo (slot_id del GLB) donde está la caja.
+  final String slotId;
 
   /// Id del producto en la base de datos (null si solo existe en el modelo).
   final int? dbId;
@@ -73,6 +81,7 @@ class StoreProduct {
     name: name ?? this.name,
     category: category ?? this.category,
     routeNode: routeNode,
+    slotId: slotId,
     price: price ?? this.price,
     stock: stock ?? this.stock,
     dbId: dbId ?? this.dbId,

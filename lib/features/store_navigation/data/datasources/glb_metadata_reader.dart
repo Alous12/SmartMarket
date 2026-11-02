@@ -89,6 +89,7 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
           name: (extras['display_name'] ?? id).toString(),
           category: (extras['category'] ?? '').toString(),
           routeNode: (extras['route_node'] ?? '').toString(),
+          slotId: (extras['slot_id'] ?? '').toString(),
         ),
       );
     }

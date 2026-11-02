@@ -131,11 +131,11 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _sendRoute(resetView: true);
           _sendNames(widget.productNames, const {});
           _sendAvailable();
-        case 'metrics':
+          if (_editMode) setEditMode(true, _avatarStart);
           final metrics = RenderMetrics(
-            fps: (data['fps'] as num).toDouble(),
-            drawCalls: (data['drawCalls'] as num).toInt(),
-            triangles: (data['triangles'] as num).toInt(),
+            fps: (data['fps'] as num?)?.toDouble() ?? 0,
+            drawCalls: (data['drawCalls'] as num?)?.toInt() ?? 0,
+            triangles: (data['triangles'] as num?)?.toInt() ?? 0,
             loadMilliseconds: _loadWatch.elapsedMilliseconds,
           );
           widget.metrics.value = metrics;
@@ -148,6 +148,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
           }
         case 'productTapped':
           widget.onProductTapped?.call(data['id'].toString());
+        case 'avatarArrived':
+          final arrival = _arrivals.remove(data['token']);
+          if (arrival != null && !arrival.isCompleted) arrival.complete();
         case 'error':
           _onError(data['message'].toString());
       }
@@ -177,6 +180,31 @@ class SupermarketViewportState extends State<SupermarketViewport>
 
   String _oneFingerMode = 'rotate';
   bool _showNodes = false;
+  bool _editMode = false;
+  String _avatarStart = '';
+  int _walkToken = 0;
+  final _arrivals = <int, Completer<void>>{};
+
+  /// Activa el modo edición: avatar en [startNode] y espacios libres visibles.
+  void setEditMode(bool value, String startNode) {
+    _editMode = value;
+    _avatarStart = startNode;
+    _command('setEditMode', {'on': value, 'start': startNode});
+  }
+
+  /// Camina el avatar por [nodeIds] y termina cuando llega al último.
+  Future<void> walkAvatar(List<String> nodeIds) {
+    final token = ++_walkToken;
+    final done = Completer<void>();
+    _arrivals[token] = done;
+    _command('walkAvatar', {'nodes': nodeIds, 'token': token});
+    return done.future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => _arrivals.remove(token)?.complete(),
+    );
+  }
+
+  void carry(bool value) => _command('carry', value);
 
   void resetView() => _command('reset');
   void zoomBy(double factor) => _command('zoomBy', factor);
@@ -220,6 +248,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
     _command('showRoute', payload);
     if (payload != null && resetView) _command('setView', 'superior');
   }
+
   /// Oculta en 3D las cajas de productos que ya no están en la base de datos.
   void _sendAvailable() {
     if (!widget.model.fromCatalog) return;

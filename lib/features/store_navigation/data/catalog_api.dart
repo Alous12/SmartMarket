@@ -51,34 +51,105 @@ class CatalogApi {
     return (jsonDecode(response.body) as Map<String, dynamic>)['data'];
   }
 
-  /// Quita el producto de la sucursal del admin (DELETE /products/:id).
-  Future<void> removeProduct(int productId) async {
+  Future<void> _write(
+    String method,
+    String path, {
+    Map<String, Object?>? body,
+    required Set<int> okStatus,
+    required String fallback,
+  }) async {
     final token = await _tokenReader();
-    final response = await _client
-        .delete(
-          Uri.parse('$_baseUrl/products/$productId'),
-          headers: {if (token != null) 'Authorization': 'Bearer $token'},
-        )
-        .timeout(_timeout);
-    if (response.statusCode != 204) {
-      var message = 'No se pudo quitar el producto.';
-      try {
-        final error = (jsonDecode(response.body) as Map)['error'];
-        if (error is String) message = error;
-      } on Object {
-        // se usa el mensaje genérico
-      }
-      throw http.ClientException(message);
+    final request = http.Request(method, Uri.parse('$_baseUrl$path'))
+      ..headers.addAll({
+        if (token != null) 'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      });
+    if (body != null) request.body = jsonEncode(body);
+    final response = await http.Response.fromStream(
+      await _client.send(request).timeout(_timeout),
+    );
+    if (okStatus.contains(response.statusCode)) return;
+    var message = fallback;
+    try {
+      final error = (jsonDecode(response.body) as Map)['error'];
+      if (error is String) message = error;
+    } on Object {
+      // se usa el mensaje genérico
     }
+    throw http.ClientException(message);
   }
 
-  Future<Map<String, CatalogProduct>> loadProducts(String assetPath) async {
+  /// Quita el producto de la sucursal del admin (DELETE /products/:id).
+  Future<void> removeProduct(int productId) => _write(
+    'DELETE',
+    '/products/$productId',
+    okStatus: {204},
+    fallback: 'No se pudo quitar el producto.',
+  );
+
+  /// Mueve el producto de un espacio a otro; si el destino está ocupado los intercambia.
+  Future<void> moveSlot(String fromSlot, String toSlot) => _write(
+    'POST',
+    '/products/slots/move',
+    body: {'from_slot': fromSlot, 'to_slot': toSlot},
+    okStatus: {200},
+    fallback: 'No se pudo mover el producto.',
+  );
+
+  Future<void> createInSlot(
+    String slot, {
+    required String name,
+    required double price,
+    required double stock,
+    required int categoryId,
+  }) => _write(
+    'POST',
+    '/products/slots/${Uri.encodeComponent(slot)}/product',
+    body: {
+      'name': name,
+      'price': price,
+      'stock_quantity': stock,
+      'category_id': categoryId,
+    },
+    okStatus: {201},
+    fallback: 'No se pudo agregar el producto.',
+  );
+
+  Future<void> updateProduct(
+    int productId, {
+    String? name,
+    double? price,
+    double? stock,
+  }) => _write(
+    'PATCH',
+    '/products/$productId',
+    body: {
+      'name': ?name,
+      'price': ?price,
+      'stock_quantity': ?stock,
+    },
+    okStatus: {200},
+    fallback: 'No se pudo guardar el producto.',
+  );
+
+  /// Categorías disponibles para productos nuevos (id -> nombre).
+  Future<Map<int, String>> loadCategories() async {
+    final options = await _get('/products/options') as Map<String, dynamic>;
+    return {
+      for (final c in (options['categories'] as List).cast<Map<String, dynamic>>())
+        (c['category_id'] as num).toInt(): c['name'] as String,
+    };
+  }
+
+  Future<CatalogSnapshot> loadSnapshot(String assetPath) async {
     final branches = await _get('/branches') as List;
     final branch = branches.cast<Map<String, dynamic>>().firstWhere(
       (b) => b['model_3d_url'] == assetPath,
     );
-    final products = await _get('/branches/${branch['branch_id']}/products');
-    return {
+    final branchId = branch['branch_id'];
+    final products = await _get('/branches/$branchId/products');
+    final slots = await _get('/products/slots?branch_id=$branchId');
+    final bySku = {
       for (final p in (products as List).cast<Map<String, dynamic>>())
         p['sku'] as String: CatalogProduct(
           productId: (p['product_id'] as num).toInt(),
@@ -89,5 +160,28 @@ class CatalogApi {
           stock: (p['stock_quantity'] as num).toDouble(),
         ),
     };
+    return CatalogSnapshot(
+      bySku: bySku,
+      byId: {for (final p in bySku.values) p.productId: p},
+      slots: {
+        for (final s in (slots as List).cast<Map<String, dynamic>>())
+          s['code'] as String: (s['product_id'] as num?)?.toInt(),
+      },
+    );
   }
+}
+
+/// Productos de una sucursal y qué producto ocupa cada espacio del modelo.
+class CatalogSnapshot {
+  const CatalogSnapshot({
+    required this.bySku,
+    required this.byId,
+    required this.slots,
+  });
+
+  final Map<String, CatalogProduct> bySku;
+  final Map<int, CatalogProduct> byId;
+
+  /// Código de espacio (slot_id del modelo) -> producto que lo ocupa, o null si está libre.
+  final Map<String, int?> slots;
 }

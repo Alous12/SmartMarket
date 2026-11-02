@@ -30,6 +30,7 @@ export interface SeedPoint {
 
 export interface SeedProduct {
   sku: string;
+  slot: string;
   name: string;
   category: string;
   section: string;
@@ -151,6 +152,7 @@ export function readBranchModel(path: string): SeedBranchData {
     if (!slot) continue;
     products.push({
       sku: String(group.product_id).slice(0, 100),
+      slot: String(group.slot_id).slice(0, 100),
       name: String(group.display_name ?? group.product_id).slice(0, 150),
       category: String(group.category ?? 'General').slice(0, 100),
       section: sectionFor(group, slot.x, slot.z).slice(0, 100),

@@ -142,6 +142,24 @@ async function seedBranch(
     );
   }
 
+  const [slots] = await connection.query<ResultSetHeader>(
+    `INSERT IGNORE INTO shelf_slots
+       (branch_id, code, section_id, shelf, coordinate_x, coordinate_y, coordinate_z, product_id)
+     VALUES ?`,
+    [
+      data.products.map((p) => [
+        branchId,
+        p.slot,
+        sectionIds.get(p.section),
+        p.shelf,
+        p.x,
+        p.y,
+        p.z,
+        productIds.get(p.sku),
+      ]),
+    ],
+  );
+
   const [inventory] = await connection.query<ResultSetHeader>(
     'INSERT IGNORE INTO inventory (branch_id, product_id, stock_quantity) VALUES ?',
     [data.products.map((p) => [branchId, productIds.get(p.sku), p.boxCount * stockPerBox])],
@@ -165,7 +183,8 @@ async function seedBranch(
   console.log(
     `${branches[0].name}: ${data.sections.length} secciones, ${data.points.length} puntos, ` +
       `${data.products.length} productos (${newProducts.length} nuevos), ` +
-      `${newLocations.length} ubicaciones nuevas, ${inventory.affectedRows} registros de stock, ` +
+      `${newLocations.length} ubicaciones nuevas, ${slots.affectedRows} espacios nuevos, ` +
+      `${inventory.affectedRows} registros de stock, ` +
       `${links.length} vínculos con ingredientes.`,
   );
 }

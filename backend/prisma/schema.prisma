@@ -50,6 +50,7 @@ model branches {
   branch_points      branch_points[]
   inventory          inventory[]
   sections           sections[]
+  shelf_slots        shelf_slots[]
   shopping_lists     shopping_lists[]
   users              users[]
 }
@@ -132,7 +133,8 @@ model products {
   inventory                                                              inventory[]
   product_ingredients                                                    product_ingredients[]
   product_locations                                                      product_locations[]
-  categories                                                             categories            @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
+  shelf_slots                                                            shelf_slots[]
+  categories                                                              categories            @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
   substitution_events_substitution_events_selected_product_idToproducts  substitution_events[] @relation("substitution_events_selected_product_idToproducts")
   substitution_events_substitution_events_suggested_product_idToproducts substitution_events[] @relation("substitution_events_suggested_product_idToproducts")
 
@@ -191,9 +193,30 @@ model sections {
   description       String?             @db.Text
   created_at        DateTime            @default(now()) @db.Timestamp(0)
   product_locations product_locations[]
+  shelf_slots       shelf_slots[]
   branches          branches            @relation(fields: [branch_id], references: [branch_id], map: "fk_sections_branch")
 
   @@index([branch_id], map: "idx_sections_branch")
+}
+
+model shelf_slots {
+  slot_id      Int       @id @default(autoincrement())
+  branch_id    Int
+  code         String    @db.VarChar(100)
+  section_id   Int
+  shelf        String?   @db.VarChar(100)
+  coordinate_x Decimal   @db.Decimal(10, 3)
+  coordinate_y Decimal   @db.Decimal(10, 3)
+  coordinate_z Decimal   @db.Decimal(10, 3)
+  product_id   Int?
+  branches     branches  @relation(fields: [branch_id], references: [branch_id], map: "fk_shelf_slots_branch")
+  sections     sections  @relation(fields: [section_id], references: [section_id], map: "fk_shelf_slots_section")
+  products     products? @relation(fields: [product_id], references: [product_id], onDelete: SetNull, map: "fk_shelf_slots_product")
+
+  @@unique([branch_id, code], map: "uq_shelf_slots_code")
+  @@unique([branch_id, product_id], map: "uq_shelf_slots_product")
+  @@index([section_id], map: "idx_shelf_slots_section")
+  @@index([product_id], map: "idx_shelf_slots_product")
 }
 
 model shopping_lists {

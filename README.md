@@ -176,7 +176,16 @@ no permiten consultar, editar ni desactivar cuentas `admin`.
 | `GET` | `/api/products` | Listar productos y ubicaciones (requiere autenticación; `branch_id` es opcional) |
 | `GET` | `/api/products/options` | Obtener categorías y secciones activas (requiere rol `admin`) |
 | `POST` | `/api/products` | Crear producto, inventario inicial y ubicación (requiere rol `admin`) |
-| `PATCH` | `/api/products/:productId/location` | Cambiar ubicación del producto (requiere rol `admin`) |
+| `PATCH` | `/api/products/:productId/location` | Cambiar ubicación del producto (requiere rol `admin`; no actualiza `shelf_slots`, usar `slots/move`) |
+| `PATCH` | `/api/products/:productId` | Editar `name`, `price` y/o `stock_quantity` en la sucursal del admin |
+| `DELETE` | `/api/products/:productId` | Quitar el producto de la sucursal del admin y liberar su espacio |
+| `GET` | `/api/products/slots` | Espacios de estantería de la sucursal y producto que ocupa cada uno (`branch_id` solo para no admin) |
+| `POST` | `/api/products/slots/move` | `{from_slot, to_slot}`: mueve el producto a un espacio libre o intercambia con el ocupante (admin) |
+| `POST` | `/api/products/slots/:slotCode/product` | Crea un producto nuevo en un espacio libre (`name`, `price`, `category_id`, `stock_quantity`; admin) |
+
+El admin solo gestiona la sucursal de `users.branch_id`. En la app, **Editar tienda** (menú del mapa)
+muestra un avatar que camina hasta la caja tocada para recoger, mover, intercambiar, editar o quitar
+productos, y ocupar espacios libres (verdes); cada cambio se guarda en la BD vía estos endpoints.
 
 Flutter envía a clientes al mapa del supermercado y a trabajadores al panel
 con las pestañas de agregar productos y cambiar su ubicación. La pestaña de

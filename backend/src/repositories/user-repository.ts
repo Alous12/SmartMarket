@@ -41,6 +41,23 @@ function toUser(row: UserRow): User {
   };
 }
 
+export async function findBranchOf(
+  userId: number,
+): Promise<{ branch_id: number; model_3d_url: string | null } | null> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT b.branch_id, b.model_3d_url
+     FROM users u JOIN branches b ON b.branch_id = u.branch_id
+     WHERE u.user_id = ? LIMIT 1`,
+    [userId],
+  );
+  return rows.length > 0
+    ? {
+        branch_id: rows[0].branch_id as number,
+        model_3d_url: (rows[0].model_3d_url as string | null) ?? null,
+      }
+    : null;
+}
+
 export async function findAllManaged(): Promise<User[]> {
   const [rows] = await pool.execute<UserRow[]>(
     `SELECT ${publicUserColumns}
