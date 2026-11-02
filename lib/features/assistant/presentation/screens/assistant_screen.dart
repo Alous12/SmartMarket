@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/data/auth_api.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/assistant_api.dart';
 import '../../domain/entities/assistant_request.dart';
@@ -50,6 +51,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         _requestController.clear();
       });
     } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
+    } on AuthApiException catch (error) {
       if (mounted) _showError(error.message);
     } finally {
       if (mounted) setState(() => _sending = false);
