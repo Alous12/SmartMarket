@@ -60,5 +60,10 @@ abstract final class AppTheme {
       backgroundColor: lime,
       foregroundColor: ink,
     ),
+    navigationBarTheme: const NavigationBarThemeData(
+      backgroundColor: Colors.white,
+      indicatorColor: lime,
+      surfaceTintColor: Colors.transparent,
+    ),
   );
 }

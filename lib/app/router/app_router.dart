@@ -6,8 +6,10 @@ import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/assistant/presentation/screens/assistant_screen.dart';
 import '../../features/staff/presentation/screens/staff_screen.dart';
+import '../../features/store_navigation/presentation/screens/products_screen.dart';
 import '../../features/store_navigation/presentation/screens/supermarket_screen.dart';
 import '../../features/users/presentation/screens/users_screen.dart';
+import '../shell/main_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authControllerProvider);
@@ -43,10 +45,39 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'register',
         builder: (context, state) => const RegisterScreen(),
       ),
-      GoRoute(
-        path: '/supermercado',
-        name: 'supermarket',
-        builder: (context, state) => const SupermarketScreen(),
+      // El orden de las ramas es el de la barra inferior (ver MainShell).
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            MainShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/asistente',
+                name: 'assistant',
+                builder: (context, state) => const AssistantScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/productos',
+                name: 'products',
+                builder: (context, state) => const ProductsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/supermercado',
+                name: 'supermarket',
+                builder: (context, state) => const SupermarketScreen(),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: '/trabajador',
@@ -57,11 +88,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/usuarios',
         name: 'users',
         builder: (context, state) => const UsersScreen(),
-      ),
-      GoRoute(
-        path: '/asistente',
-        name: 'assistant',
-        builder: (context, state) => const AssistantScreen(),
       ),
     ],
   );

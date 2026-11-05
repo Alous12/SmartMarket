@@ -4,14 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
 
-/// Acción elegida en la lista de productos.
-class ProductListAction {
-  const ProductListAction(this.productId, {this.edit = false});
-
-  final String productId;
-  final bool edit;
-}
-
 /// Resultado de [showProductEditor] cuando el admin pide quitar el producto.
 const productRemoveRequest = '\u0000remove';
 
@@ -145,45 +137,25 @@ class _ProductEditorState extends State<_ProductEditor> {
 }
 
 /// Lista buscable de los productos del supermercado.
-Future<ProductListAction?> showProductList(
-  BuildContext context, {
-  required Supermarket store,
-  required List<StoreProduct> products,
-}) {
-  return showModalBottomSheet<ProductListAction>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      minChildSize: 0.4,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => _ProductList(
-        store: store,
-        products: products,
-        scrollController: scrollController,
-      ),
-    ),
-  );
-}
-
-class _ProductList extends ConsumerStatefulWidget {
-  const _ProductList({
+class ProductListView extends ConsumerStatefulWidget {
+  const ProductListView({
+    super.key,
     required this.store,
     required this.products,
-    required this.scrollController,
+    required this.onSelected,
+    required this.onRename,
   });
 
   final Supermarket store;
   final List<StoreProduct> products;
-  final ScrollController scrollController;
+  final ValueChanged<StoreProduct> onSelected;
+  final ValueChanged<StoreProduct> onRename;
 
   @override
-  ConsumerState<_ProductList> createState() => _ProductListState();
+  ConsumerState<ProductListView> createState() => _ProductListViewState();
 }
 
-class _ProductListState extends ConsumerState<_ProductList> {
+class _ProductListViewState extends ConsumerState<ProductListView> {
   String _query = '';
 
   static String _normalize(String value) => value
@@ -209,20 +181,14 @@ class _ProductListState extends ConsumerState<_ProductList> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+          padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
           child: Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Productos', style: theme.textTheme.titleLarge),
-                    Text(
-                      '${widget.store.title} · ${widget.products.length} productos'
-                      '${names.isEmpty ? '' : ' · ${names.length} renombrados'}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
+                child: Text(
+                  '${widget.store.title} · ${widget.products.length} productos'
+                  '${names.isEmpty ? '' : ' · ${names.length} renombrados'}',
+                  style: theme.textTheme.bodySmall,
                 ),
               ),
               if (names.isNotEmpty)
@@ -249,7 +215,6 @@ class _ProductListState extends ConsumerState<_ProductList> {
         const SizedBox(height: 8),
         Expanded(
           child: ListView.builder(
-            controller: widget.scrollController,
             itemCount: visible.length,
             itemBuilder: (context, index) {
               final product = visible[index];
@@ -274,13 +239,9 @@ class _ProductListState extends ConsumerState<_ProductList> {
                 trailing: IconButton(
                   tooltip: 'Renombrar',
                   icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => Navigator.pop(
-                    context,
-                    ProductListAction(product.id, edit: true),
-                  ),
+                  onPressed: () => widget.onRename(product),
                 ),
-                onTap: () =>
-                    Navigator.pop(context, ProductListAction(product.id)),
+                onTap: () => widget.onSelected(product),
               );
             },
           ),
