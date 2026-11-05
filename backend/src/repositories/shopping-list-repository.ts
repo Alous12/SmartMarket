@@ -2,6 +2,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { pool } from '../database/pool.js';
 import type {
+  IngredientAvailabilityStatus,
   IngredientListEntry,
   ShoppingList,
   ShoppingListItem,
@@ -29,6 +30,7 @@ interface ShoppingListItemRow extends RowDataPacket {
   // mysql2 devuelve DECIMAL como texto.
   quantity: string | null;
   unit: string | null;
+  availability: IngredientAvailabilityStatus | null;
 }
 
 function toItem(row: ShoppingListItemRow): ShoppingListItem {
@@ -40,6 +42,7 @@ function toItem(row: ShoppingListItemRow): ShoppingListItem {
     normalized_name: row.normalized_name,
     quantity: row.quantity === null ? null : Number(row.quantity),
     unit: row.unit,
+    availability: row.availability,
   };
 }
 
@@ -62,7 +65,8 @@ export async function findByRequest(
             item.raw_name,
             item.normalized_name,
             item.quantity,
-            item.unit
+            item.unit,
+            item.availability
      FROM shopping_list_items item
      LEFT JOIN ingredients ingredient
        ON ingredient.ingredient_id = item.ingredient_id
@@ -82,6 +86,25 @@ export async function findByRequest(
     updated_at: list.updated_at,
     items: items.map(toItem),
   };
+}
+
+/** Registra el resultado de consultar el inventario para cada elemento. */
+export async function saveAvailability(
+  items: Array<{ item_id: number; availability: IngredientAvailabilityStatus }>,
+): Promise<void> {
+  const idsByStatus = new Map<IngredientAvailabilityStatus, number[]>();
+  for (const item of items) {
+    idsByStatus.set(item.availability, [
+      ...(idsByStatus.get(item.availability) ?? []),
+      item.item_id,
+    ]);
+  }
+  for (const [availability, ids] of idsByStatus) {
+    await pool.query(
+      'UPDATE shopping_list_items SET availability = ? WHERE item_id IN (?)',
+      [availability, ids],
+    );
+  }
 }
 
 /**

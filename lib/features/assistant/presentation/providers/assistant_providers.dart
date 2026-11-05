@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../app/providers/store_providers.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../store_navigation/presentation/providers/store_model_provider.dart';
 import '../../../users/data/user_api.dart' show apiBaseUrl;
 import '../../data/assistant_api.dart';
+import '../../domain/entities/assistant_request.dart';
 
 final assistantApiProvider = Provider<AssistantApi>((ref) {
   final client = http.Client();
@@ -22,6 +24,14 @@ final assistantBranchIdProvider = FutureProvider.autoDispose<int?>((ref) async {
     return null;
   }
 });
+
+/// Recetas que el usuario ya pidió.
+final recipeHistoryProvider =
+    FutureProvider.autoDispose<List<RecipeHistoryEntry>>((ref) async {
+      final session = await ref.watch(authControllerProvider.future);
+      if (session == null) return const [];
+      return ref.watch(assistantApiProvider).fetchHistory(token: session.token);
+    }, retry: (count, error) => null);
 
 /// Cada cuánto se consulta si la IA terminó de procesar la petición.
 final assistantPollIntervalProvider = Provider<Duration>(

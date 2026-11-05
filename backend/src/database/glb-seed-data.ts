@@ -180,18 +180,19 @@ export function normalizeName(name: string): string {
     .trim();
 }
 
-/** Ingredientes del catálogo cuyo nombre aparece en el del producto (admite plural). */
+/**
+ * Ingredientes con los que empieza el nombre del producto (admite plural). Solo
+ * se mira el inicio porque el resto describe otra cosa: "Soda limon" no es limón.
+ */
 export function matchIngredients<T extends { name: string }>(
   productName: string,
   ingredients: T[],
 ): T[] {
-  const haystack = ` ${normalizeName(productName)} `;
+  const haystack = `${normalizeName(productName)} `;
   return ingredients.filter((ingredient) => {
     const phrase = normalizeName(ingredient.name);
-    return (
-      haystack.includes(` ${phrase} `) ||
-      haystack.includes(` ${phrase}s `) ||
-      haystack.includes(` ${phrase}es `)
+    return [`${phrase} `, `${phrase}s `, `${phrase}es `].some((prefix) =>
+      haystack.startsWith(prefix),
     );
   });
 }

@@ -6,10 +6,11 @@ import type {
   ShoppingList,
 } from '../models/shopping-list.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
+import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
 import { getIdentity } from './auth-service.js';
-import { buildIngredientAvailabilityItems } from './ingredient-availability.js';
+import { buildIngredientAvailability } from './ingredient-availability.js';
 import {
   buildIngredientList,
   normalizeIngredientName,
@@ -88,6 +89,11 @@ export async function getIngredientList(
   return list;
 }
 
+/**
+ * Compara la lista con el inventario de la sucursal de la petición (HU-18),
+ * arma el recorrido con lo disponible (HU-20) y deja registrado lo que falta
+ * para informar al usuario (HU-21).
+ */
 export async function getIngredientAvailability(
   authorization: string | undefined,
   requestId: number,
@@ -110,13 +116,29 @@ export async function getIngredientAvailability(
       ),
     ),
   ];
-  const products = await ingredientRepository.findAvailableProducts(
-    list.branch_id,
-    ingredientIds,
-  );
+  const substitutions = await ingredientRepository.findSubstitutions(ingredientIds);
+  const [products, branches] = await Promise.all([
+    ingredientRepository.findAvailableProducts([
+      ...ingredientIds,
+      ...substitutions.map((substitution) => substitution.substitute_ingredient_id),
+    ]),
+    branchRepository.findActive(),
+  ]);
+
+  const { items, routes } = buildIngredientAvailability({
+    items: list.items,
+    branchId: list.branch_id,
+    branches,
+    products,
+    substitutions,
+  });
+  await shoppingListRepository.saveAvailability(items);
 
   return {
     ...list,
-    items: buildIngredientAvailabilityItems(list.items, products),
+    branch_name:
+      branches.find((branch) => branch.branch_id === list.branch_id)?.name ?? null,
+    items,
+    routes,
   };
 }

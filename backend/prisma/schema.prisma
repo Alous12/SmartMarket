@@ -75,6 +75,19 @@ model ingredients {
   shopping_list_items shopping_list_items[]
   substitution_events substitution_events[]
   user_preferences    user_preferences[]
+  substitutes         ingredient_substitutes[] @relation("ingredient_substitutes_ingredient")
+  substitute_of       ingredient_substitutes[] @relation("ingredient_substitutes_substitute")
+}
+
+model ingredient_substitutes {
+  ingredient_id            Int
+  substitute_ingredient_id Int
+  priority                 Int         @default(1)
+  ingredient               ingredients @relation("ingredient_substitutes_ingredient", fields: [ingredient_id], references: [ingredient_id], onDelete: Cascade, map: "fk_ingredient_substitutes_ingredient")
+  substitute               ingredients @relation("ingredient_substitutes_substitute", fields: [substitute_ingredient_id], references: [ingredient_id], onDelete: Cascade, map: "fk_ingredient_substitutes_substitute")
+
+  @@id([ingredient_id, substitute_ingredient_id])
+  @@index([substitute_ingredient_id], map: "idx_ingredient_substitutes_substitute")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -352,6 +365,12 @@ enum shopping_lists_status {
   ACTIVE
   COMPLETED
   CANCELLED
+}
+
+enum shopping_list_items_availability {
+  AVAILABLE
+  UNAVAILABLE
+  NOT_IN_CATALOG
 }
 
 enum recipes_source {

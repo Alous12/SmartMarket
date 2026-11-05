@@ -9,12 +9,15 @@ enum AssistantRequestStatus {
 /// Ingrediente de la lista generada por el asistente.
 class AssistantIngredient {
   const AssistantIngredient({
+    this.id,
     required this.name,
     this.quantity,
     this.unit,
     this.inCatalog = false,
   });
 
+  /// Elemento de la lista guardada en el backend.
+  final int? id;
   final String name;
   final double? quantity;
   final String? unit;
@@ -24,10 +27,36 @@ class AssistantIngredient {
 
   factory AssistantIngredient.fromJson(Map<String, dynamic> json) {
     return AssistantIngredient(
+      id: json['item_id'] as int?,
       name: json['name'] as String,
       quantity: (json['quantity'] as num?)?.toDouble(),
       unit: json['unit'] as String?,
       inCatalog: json['ingredient_id'] != null,
+    );
+  }
+}
+
+/// Receta ya resuelta que se puede repetir sin volver a consultar a la IA.
+class RecipeHistoryEntry {
+  const RecipeHistoryEntry({
+    required this.id,
+    required this.recipeName,
+    required this.ingredientCount,
+    required this.createdAt,
+  });
+
+  /// Petición que generó la receta.
+  final int id;
+  final String recipeName;
+  final int ingredientCount;
+  final DateTime createdAt;
+
+  factory RecipeHistoryEntry.fromJson(Map<String, dynamic> json) {
+    return RecipeHistoryEntry(
+      id: json['request_id'] as int,
+      recipeName: json['recipe_name'] as String,
+      ingredientCount: json['ingredient_count'] as int,
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
     );
   }
 }

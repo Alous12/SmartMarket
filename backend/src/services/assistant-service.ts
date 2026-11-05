@@ -3,6 +3,7 @@ import type {
   AssistantRequest,
   AssistantRequestDetail,
   AssistantRequestStatus,
+  RecipeHistoryEntry,
 } from '../models/assistant-request.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
 import * as branchRepository from '../repositories/branch-repository.js';
@@ -20,6 +21,7 @@ import {
 import { parseAssistantRequest } from './assistant-prompt.js';
 import { getIdentity } from './auth-service.js';
 import { generateIngredientList } from './ingredient-list-service.js';
+import { latestPerRecipe } from './recipe-history.js';
 
 /**
  * Recibe la petición del usuario, la guarda tal cual junto con la sucursal
@@ -58,6 +60,16 @@ export async function getRequest(
   }
   const list = await shoppingListRepository.findByRequest(requestId);
   return { ...request, ingredients: list?.items ?? [] };
+}
+
+/** Recetas que el usuario ya pidió; repetirlas no vuelve a consultar a la IA. */
+export async function listRecipeHistory(
+  authorization: string | undefined,
+): Promise<RecipeHistoryEntry[]> {
+  const identity = getIdentity(authorization);
+  return latestPerRecipe(
+    await assistantRequestRepository.findCompletedRecipes(identity.userId),
+  );
 }
 
 /** Marca la petición como en procesamiento para que el sistema de IA la tome. */

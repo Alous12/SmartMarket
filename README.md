@@ -204,10 +204,11 @@ genéricos.
 | Método | Ruta | Descripción |
 | --- | --- | --- |
 | `POST` | `/api/assistant/requests` | Enviar la petición (`prompt`, `branch_id` opcional) e iniciar su análisis con IA |
+| `GET` | `/api/assistant/requests` | Historial de recetas del usuario, una entrada por receta |
 | `GET` | `/api/assistant/requests/:requestId` | Consultar el estado, la receta identificada (`recipe_name`), el mensaje (`response_message`) y los `ingredients` |
 | `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
 | `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
-| `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Consultar disponibilidad por ingrediente en la sucursal de la petición |
+| `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Comparar la lista con el inventario y obtener las rutas de compra |
 
 El `PUT` recibe la salida del paso de identificación,
 `{"ingredients": [{"name": "Tomate", "quantity": 3, "unit": "u"}]}`, donde
@@ -221,10 +222,33 @@ petición. Repetir el `PUT` reemplaza los elementos y conserva el mismo
 `list_id`. Este endpoint permite cargar la lista a mano; el análisis con IA usa
 el mismo servicio (`generateIngredientList`).
 La consulta de disponibilidad compara cada ingrediente del catálogo con los
-productos activos asociados que tienen inventario positivo en esa sucursal.
-Cada elemento incluye `availability` (`AVAILABLE`, `UNAVAILABLE` o
-`NOT_IN_CATALOG`) y `available_products` con los productos y existencias
-encontrados.
+productos activos asociados que tienen inventario positivo. Cada elemento
+incluye:
+
+- `availability` (`AVAILABLE`, `UNAVAILABLE` o `NOT_IN_CATALOG`): estado en la
+  sucursal de la petición. También queda guardado en
+  `shopping_list_items.availability` para informar al usuario lo que falta.
+- `available_products`: productos de esa sucursal, con existencias y ubicación
+  (`section_name`, `shelf`).
+- `other_branches`: otras sucursales que sí tienen el ingrediente.
+- `substitutes`: producto similar en cada sucursal donde falta, según la tabla
+  `ingredient_substitutes` (se usa la primera alternativa con stock por
+  `priority`).
+
+La respuesta incluye además `routes`: un recorrido por cada sucursal con algo de
+la lista. Van primero las que tienen más ingredientes exactos, luego las que más
+cubren con similares, y si empatan la sucursal elegida. Cada `stops` trae un
+producto por ingrediente (`is_substitute` marca los similares) y `missing` lo que
+no entra en ese recorrido. La lista queda vacía si ninguna sucursal tiene algo.
+
+La app resume esta respuesta: dice si todos los productos existen en un
+supermercado, permite elegir si existen en ambos y solo detalla los ingredientes
+que no hay en ninguno, con sus reemplazos en cada supermercado. Al elegir, abre
+el mapa de esa sucursal y traza el recorrido.
+
+El historial permite repetir una receta sin consultar a la IA: se vuelve a
+comparar su lista guardada con el inventario actual. El chat, en cambio, vive en
+la memoria de la app y se borra al cerrar sesión.
 
 #### Análisis con IA (Gemini)
 
@@ -258,7 +282,13 @@ que la petición termina.
 productos, ubicaciones, stock inicial y vínculos con ingredientes. Los `.glb` no
 traen precio ni stock: se usan valores de prueba (precio estable por SKU y 10
 unidades por caja). Se puede repetir sin duplicar datos ni pisar cambios
-hechos desde la app. Cada admin pertenece a una sola sucursal (`users.branch_id`);
+hechos desde la app; solo los vínculos con ingredientes se rehacen cada vez.
+
+Los vínculos se deducen del inicio del nombre ("Leche entera" es Leche, "Dulce de
+leche" no). `backend/src/database/demo-catalog.ts` define las excepciones y los
+productos que los modelos no traen (Ajo, Papa, Pimentón, Orégano, Canela): como
+todos los espacios del modelo están ocupados, toman el lugar de cajas de relleno
+para conservar su posición en el mapa. Cada admin pertenece a una sola sucursal (`users.branch_id`);
 el admin existente quedó asignado a SmartMarket Piloto.
 
 ### Conectar Flutter con el backend

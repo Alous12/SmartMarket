@@ -27,6 +27,15 @@ test('matches ingredients by whole word, ignoring accents and plurals', () => {
   assert.deepEqual(matchIngredients('Arrozal', ingredients), []);
 });
 
+test('does not take a flavor or a description for the ingredient', () => {
+  assert.deepEqual(matchIngredients('Soda limon', ingredients), []);
+  assert.deepEqual(matchIngredients('Dulce de leche', ingredients), []);
+  assert.deepEqual(
+    matchIngredients('Leche entera', ingredients).map((i) => i.name),
+    ['Leche'],
+  );
+});
+
 test('demo price is stable and within range', () => {
   assert.equal(demoPrice('ARROZ_001'), demoPrice('ARROZ_001'));
   const price = demoPrice('PIL_0091');

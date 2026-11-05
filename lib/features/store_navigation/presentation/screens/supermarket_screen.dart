@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
@@ -173,6 +174,49 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
+  /// Ruta armada por el asistente: abre el supermercado que tiene los
+  /// ingredientes y traza el recorrido por sus productos.
+  Future<void> _showShoppingRoute(ShoppingRoute route) async {
+    final store = Supermarket.values
+        .where((store) => store.assetPath == route.modelUrl)
+        .firstOrNull;
+    if (store == null) {
+      _toast('No se encontró el mapa de ${route.branchName}.');
+      return;
+    }
+    await _selectStore(store);
+    if (!mounted) return;
+    final StoreModel model;
+    try {
+      model = await ref.read(storeModelProvider.future);
+    } on Object {
+      if (mounted) _toast('No se pudo cargar el mapa de ${route.branchName}.');
+      return;
+    }
+    if (!mounted) return;
+    if (model.store != store) {
+      _toast('Tu cuenta solo puede ver ${model.store.title}.');
+      return;
+    }
+    final productIds = storeProductIdsFor(route, model.metadata.products);
+    if (productIds.isEmpty) {
+      _toast('Los productos de la ruta no aparecen en el mapa.');
+      return;
+    }
+    try {
+      ref
+          .read(navigationSessionProvider.notifier)
+          .start(_planRoute(model, productIds));
+      _showTopView();
+    } on StateError catch (error) {
+      _toast(error.message);
+      return;
+    }
+    if (route.missing.isNotEmpty) {
+      _toast('No hay en ${route.branchName}: ${route.missing.join(', ')}.');
+    }
+  }
+
   void _showTopView() {
     setState(() => _topView = true);
     _viewport?.setView('superior');
@@ -240,7 +284,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         _edit.toggle(model);
         break;
       case OpenAssistantAction():
-        await context.pushNamed('assistant');
+        final route = await context.pushNamed<ShoppingRoute>('assistant');
+        if (mounted && route != null) await _showShoppingRoute(route);
         break;
     }
   }
@@ -251,6 +296,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   Widget build(BuildContext context) {
     final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
+    // La ruta del asistente se inicia mientras carga otro supermercado: sin este
+    // watch la sesión se destruiría antes de que el mapa la muestre.
+    ref.watch(navigationSessionProvider);
     return PopScope<Object?>(
       canPop: Navigator.of(context).canPop(),
       onPopInvokedWithResult: (didPop, result) {

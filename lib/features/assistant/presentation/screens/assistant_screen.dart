@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/data/auth_api.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/assistant_api.dart';
-import '../../domain/entities/assistant_request.dart';
+import '../../domain/entities/recipe_availability.dart';
+import '../providers/assistant_chat_provider.dart';
 import '../providers/assistant_providers.dart';
+import '../widgets/assistant_messages.dart';
+import '../widgets/recipe_history_sheet.dart';
 
 /// Asistente SmartMarket: el usuario escribe el plato o los productos que
-/// necesita comprar o preparar.
+/// necesita comprar o preparar. Al cerrarse eligiendo una ruta devuelve la
+/// [ShoppingRoute] que el mapa debe recorrer.
 class AssistantScreen extends ConsumerStatefulWidget {
   const AssistantScreen({super.key});
 
@@ -19,12 +21,8 @@ class AssistantScreen extends ConsumerStatefulWidget {
 }
 
 class _AssistantScreenState extends ConsumerState<AssistantScreen> {
-  /// Consultas máximas mientras la IA procesa (unos 90 s con el intervalo por defecto).
-  static const _maxPolls = 45;
-
   final _requestController = TextEditingController();
-  final _sentRequests = <AssistantRequest>[];
-  bool _sending = false;
+  bool _repeating = false;
 
   @override
   void dispose() {
@@ -33,75 +31,51 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   }
 
   Future<void> _sendRequest() async {
-    final prompt = _requestController.text;
-    if (_sending || prompt.trim().isEmpty) return;
-
-    setState(() => _sending = true);
     try {
-      final session = await ref.read(authControllerProvider.future);
+      final sent = await ref
+          .read(assistantChatProvider.notifier)
+          .send(_requestController.text);
+      if (sent && mounted) _requestController.clear();
+    } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
+    } on AuthApiException catch (error) {
+      if (mounted) _showError(error.message);
+    }
+  }
+
+  /// Repite una receta sin consultar a la IA. Si solo hay un supermercado posible
+  /// va directo a la ruta; si no, la receta queda en el chat para elegir.
+  Future<void> _openHistory() async {
+    final entry = await showRecipeHistory(context);
+    if (entry == null || !mounted) return;
+    setState(() => _repeating = true);
+    try {
+      final availability = await ref
+          .read(assistantChatProvider.notifier)
+          .repeat(entry.id);
       if (!mounted) return;
-      if (session == null) {
-        _showError('Inicia sesión para enviar tu petición.');
-        return;
-      }
-      final token = session.token;
-      final branchId = await ref.read(assistantBranchIdProvider.future);
-      if (!mounted) return;
-      final request = await ref
-          .read(assistantApiProvider)
-          .sendRequest(token: token, prompt: prompt, branchId: branchId);
-      if (!mounted) return;
-      setState(() {
-        _sentRequests.add(request);
-        _requestController.clear();
-      });
-      // Se mantiene _sending hasta que la IA responda: una consulta a la vez.
-      await _waitForAnswer(token, request);
+      final options = availability.options;
+      if (options.length == 1) _showRoute(options.single);
     } on AssistantApiException catch (error) {
       if (mounted) _showError(error.message);
     } on AuthApiException catch (error) {
       if (mounted) _showError(error.message);
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) setState(() => _repeating = false);
     }
   }
 
-  /// Consulta la petición hasta que la IA identifique la receta y su lista.
-  Future<void> _waitForAnswer(String token, AssistantRequest request) async {
-    final interval = ref.read(assistantPollIntervalProvider);
-    var current = request;
-    for (var poll = 0; poll < _maxPolls && !current.isFinished; poll++) {
-      await Future<void>.delayed(interval);
-      if (!mounted) return;
-      try {
-        current = await ref
-            .read(assistantApiProvider)
-            .fetchRequest(token: token, requestId: request.id);
-      } on AssistantApiException {
-        // Un fallo puntual de red no detiene la espera.
-        continue;
-      }
-      if (!mounted) return;
-      _updateRequest(current);
-    }
-    if (!current.isFinished && mounted) {
-      _updateRequest(
-        AssistantRequest(
-          id: current.id,
-          prompt: current.prompt,
-          status: AssistantRequestStatus.failed,
-          message:
-              'El asistente está tardando más de lo normal. Inténtalo de nuevo en unos minutos.',
-        ),
-      );
+  Future<void> _retryAvailability(AssistantChatEntry entry) async {
+    try {
+      await ref
+          .read(assistantChatProvider.notifier)
+          .retryAvailability(entry.request);
+    } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
     }
   }
 
-  void _updateRequest(AssistantRequest request) {
-    final index = _sentRequests.indexWhere((sent) => sent.id == request.id);
-    if (index == -1) return;
-    setState(() => _sentRequests[index] = request);
-  }
+  void _showRoute(ShoppingRoute route) => Navigator.of(context).pop(route);
 
   void _showError(String message) {
     ScaffoldMessenger.of(
@@ -112,38 +86,49 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     // Mantiene cargada la sucursal elegida para enviarla con la petición.
-    ref.watch(assistantBranchIdProvider);
+    final branchId = ref.watch(assistantBranchIdProvider).value;
+    final chat = ref.watch(assistantChatProvider);
+    final entries = chat.entries;
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            const _AssistantHeader(),
+            _AssistantHeader(repeating: _repeating, onHistory: _openHistory),
             Expanded(
-              child: ListView.separated(
-                reverse: true,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                itemCount: _sentRequests.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final request =
-                      _sentRequests[_sentRequests.length - 1 - index];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _UserMessage(text: request.prompt),
-                      const SizedBox(height: 12),
-                      _AssistantReply(request: request),
-                    ],
-                  );
-                },
-              ),
+              child: entries.isEmpty
+                  ? _Welcome(
+                      onSuggestion: (text) => _requestController.text = text,
+                    )
+                  : ListView.separated(
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      itemCount: entries.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 16),
+                      itemBuilder: (context, index) {
+                        final entry = entries[entries.length - 1 - index];
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            UserMessage(text: entry.request.prompt),
+                            const SizedBox(height: 12),
+                            AssistantReply(
+                              entry: entry,
+                              currentBranchId: branchId,
+                              onRetryAvailability: () =>
+                                  _retryAvailability(entry),
+                              onShowRoute: _showRoute,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: _RequestField(
                 controller: _requestController,
-                sending: _sending,
+                sending: chat.sending,
                 onSend: _sendRequest,
               ),
             ),
@@ -154,158 +139,87 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   }
 }
 
-/// Burbuja con la petición enviada por el usuario.
-class _UserMessage extends StatelessWidget {
-  const _UserMessage({required this.text});
+/// Se muestra mientras el chat está vacío.
+class _Welcome extends StatelessWidget {
+  const _Welcome({required this.onSuggestion});
 
-  final String text;
+  static const _suggestions = [
+    'Quiero preparar arroz con leche',
+    'Quiero preparar lasaña de carne',
+    'Quiero preparar un guiso de carne de res',
+  ];
+
+  final ValueChanged<String> onSuggestion;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-        ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppTheme.lime,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Text(
-            text,
-            style: const TextStyle(color: AppTheme.ink, fontSize: 17),
-          ),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AssistantAvatar(size: 56),
+            const SizedBox(height: 14),
+            const Text(
+              '¿Qué quieres cocinar hoy?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.ink,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Te digo qué supermercado tiene los ingredientes y te llevo por la ruta.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.muted, fontSize: 15),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final suggestion in _suggestions)
+                  ActionChip(
+                    label: Text(suggestion),
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: AppTheme.border),
+                    onPressed: () => onSuggestion(suggestion),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Respuesta del asistente: progreso, receta con su lista de ingredientes o
-/// el motivo por el que no se pudo atender la petición.
-class _AssistantReply extends StatelessWidget {
-  const _AssistantReply({required this.request});
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({
+    required this.tooltip,
+    required this.onTap,
+    required this.child,
+  });
 
-  final AssistantRequest request;
-
-  static String _quantity(AssistantIngredient ingredient) {
-    final quantity = ingredient.quantity;
-    if (quantity == null) return 'al gusto';
-    final amount = quantity == quantity.roundToDouble()
-        ? quantity.toInt().toString()
-        : quantity.toString();
-    return [amount, ?ingredient.unit].join(' ');
-  }
+  final String tooltip;
+  final VoidCallback? onTap;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final recipeName = request.recipeName;
-    final Widget content = switch (request.status) {
-      AssistantRequestStatus.received ||
-      AssistantRequestStatus.processing => Row(
-        children: [
-          const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppTheme.green,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              recipeName == null
-                  ? 'Identificando la receta…'
-                  : 'Preparando la lista de $recipeName…',
-              style: const TextStyle(color: AppTheme.muted, fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-      AssistantRequestStatus.completed => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.restaurant_menu,
-                size: 20,
-                color: AppTheme.green,
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  recipeName ?? 'Receta',
-                  style: const TextStyle(
-                    color: AppTheme.ink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Ingredientes (${request.ingredients.length})',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 14),
-          ),
-          const SizedBox(height: 8),
-          for (final ingredient in request.ingredients)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('•  ', style: TextStyle(color: AppTheme.green)),
-                  Expanded(
-                    child: Text(
-                      ingredient.name,
-                      style: const TextStyle(color: AppTheme.ink, fontSize: 16),
-                    ),
-                  ),
-                  Text(
-                    _quantity(ingredient),
-                    style: const TextStyle(color: AppTheme.muted, fontSize: 15),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-      AssistantRequestStatus.rejected || AssistantRequestStatus.failed => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.info_outline, size: 20, color: AppTheme.muted),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              request.message ?? 'No se pudo procesar tu petición.',
-              style: const TextStyle(color: AppTheme.ink, fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-    };
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.85,
-        ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: AppTheme.border),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: content,
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white,
+        shape: const CircleBorder(side: BorderSide(color: AppTheme.border)),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 48, height: 48, child: child),
         ),
       ),
     );
@@ -313,33 +227,21 @@ class _AssistantReply extends StatelessWidget {
 }
 
 class _AssistantHeader extends StatelessWidget {
-  const _AssistantHeader();
+  const _AssistantHeader({required this.repeating, required this.onHistory});
+
+  final bool repeating;
+  final VoidCallback onHistory;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Row(
         children: [
-          Tooltip(
-            message: 'Volver',
-            child: Material(
-              color: Colors.white,
-              shape: const CircleBorder(
-                side: BorderSide(color: AppTheme.border),
-              ),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => context.canPop()
-                    ? context.pop()
-                    : Navigator.maybePop(context),
-                child: const SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Icon(Icons.chevron_left, color: AppTheme.ink),
-                ),
-              ),
-            ),
+          _RoundButton(
+            tooltip: 'Volver',
+            onTap: () => Navigator.maybePop(context),
+            child: const Icon(Icons.chevron_left, color: AppTheme.ink),
           ),
           const SizedBox(width: 14),
           const Expanded(
@@ -375,6 +277,20 @@ class _AssistantHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 8),
+          _RoundButton(
+            tooltip: 'Historial de recetas',
+            onTap: repeating ? null : onHistory,
+            child: repeating
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.green,
+                    ),
+                  )
+                : const Icon(Icons.history, color: AppTheme.ink),
           ),
         ],
       ),

@@ -12,6 +12,13 @@ export const createRequest: RequestHandler = async (request, response) => {
   response.status(201).json({ data: assistantRequest });
 };
 
+export const listRecipeHistory: RequestHandler = async (request, response) => {
+  const history = await assistantService.listRecipeHistory(
+    request.get('authorization'),
+  );
+  response.json({ data: history });
+};
+
 export const getRequest: RequestHandler = async (request, response) => {
   const assistantRequest = await assistantService.getRequest(
     request.get('authorization'),

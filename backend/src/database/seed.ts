@@ -3,13 +3,14 @@ import { fileURLToPath } from 'node:url';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 
-import { pool } from './pool.js';
 import {
-  demoPrice,
-  matchIngredients,
-  readBranchModel,
-  type SeedBranchData,
-} from './glb-seed-data.js';
+  applyProductOverrides,
+  ingredientsForProduct,
+  productOverrides,
+  type ProductOverride,
+} from './demo-catalog.js';
+import { pool } from './pool.js';
+import { demoPrice, readBranchModel, type SeedBranchData } from './glb-seed-data.js';
 
 const stockPerBox = 10;
 
@@ -31,6 +32,7 @@ async function seedBranch(
   connection: PoolConnection,
   modelUrl: string,
   data: SeedBranchData,
+  overrides: ProductOverride[],
 ) {
   const [branches] = await connection.query<RowDataPacket[]>(
     'SELECT branch_id, name FROM branches WHERE model_3d_url = ? LIMIT 1',
@@ -106,6 +108,13 @@ async function seedBranch(
       ],
     );
   }
+  // En bases ya cargadas el producto existe con el nombre del modelo.
+  for (const override of overrides) {
+    await connection.query(
+      'UPDATE products SET name = ?, category_id = ? WHERE sku = ? AND name = ?',
+      [override.name, categoryIds.get(override.category), override.sku, override.from],
+    );
+  }
   const productIds = await idMap(
     connection,
     'SELECT product_id, sku FROM products WHERE sku IN (?)',
@@ -169,10 +178,15 @@ async function seedBranch(
     'SELECT ingredient_id, name FROM ingredients',
   );
   const links = data.products.flatMap((p) =>
-    matchIngredients(p.name, ingredients as Array<{ name: string; ingredient_id: number }>).map(
-      (ingredient) => [productIds.get(p.sku), ingredient.ingredient_id],
-    ),
+    ingredientsForProduct(
+      p.name,
+      ingredients as Array<{ name: string; ingredient_id: number }>,
+    ).map((ingredient) => [productIds.get(p.sku), ingredient.ingredient_id]),
   );
+  // Solo este script escribe los vínculos: se rehacen para corregir los anteriores.
+  await connection.query('DELETE FROM product_ingredients WHERE product_id IN (?)', [
+    [...productIds.values()],
+  ]);
   if (links.length > 0) {
     await connection.query(
       'INSERT IGNORE INTO product_ingredients (product_id, ingredient_id) VALUES ?',
@@ -195,10 +209,12 @@ const connection = await pool.getConnection();
 try {
   await connection.beginTransaction();
   for (const model of models) {
+    const overrides = productOverrides[model] ?? [];
     await seedBranch(
       connection,
       `Modelos_3D/${model}.glb`,
-      readBranchModel(`${modelsDir}${model}.glb`),
+      applyProductOverrides(readBranchModel(`${modelsDir}${model}.glb`), overrides),
+      overrides,
     );
   }
   await connection.commit();

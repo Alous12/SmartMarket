@@ -4,9 +4,12 @@ import { pool } from '../database/pool.js';
 import type {
   AssistantRequest,
   AssistantRequestStatus,
+  RecipeHistoryEntry,
 } from '../models/assistant-request.js';
 
 interface AssistantRequestRow extends RowDataPacket, AssistantRequest {}
+
+interface RecipeHistoryRow extends RowDataPacket, RecipeHistoryEntry {}
 
 const columns = `
   request_id,
@@ -40,6 +43,33 @@ export async function findById(
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+/** Recetas completadas del usuario que tienen lista, de la más nueva a la más antigua. */
+export async function findCompletedRecipes(
+  userId: number,
+): Promise<RecipeHistoryEntry[]> {
+  const [rows] = await pool.execute<RecipeHistoryRow[]>(
+    `SELECT request.request_id, request.recipe_name, list.branch_id,
+            COUNT(item.item_id) AS ingredient_count, request.created_at
+     FROM assistant_requests request
+     JOIN shopping_lists list ON list.request_id = request.request_id
+     JOIN shopping_list_items item ON item.list_id = list.list_id
+     WHERE request.user_id = ?
+       AND request.status = 'COMPLETED'
+       AND request.recipe_name IS NOT NULL
+     GROUP BY request.request_id, request.recipe_name, list.branch_id,
+              request.created_at
+     ORDER BY request.request_id DESC`,
+    [userId],
+  );
+  return rows.map((row) => ({
+    request_id: row.request_id,
+    recipe_name: row.recipe_name,
+    branch_id: row.branch_id,
+    ingredient_count: Number(row.ingredient_count),
+    created_at: row.created_at,
+  }));
 }
 
 export async function create(input: {

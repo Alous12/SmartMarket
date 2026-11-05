@@ -2,67 +2,287 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type {
+  BranchSummary,
   IngredientProductMatch,
+  IngredientSubstitution,
   ShoppingListItem,
 } from '../src/models/shopping-list.js';
-import { buildIngredientAvailabilityItems } from '../src/services/ingredient-availability.js';
+import { buildIngredientAvailability } from '../src/services/ingredient-availability.js';
 
-const items: ShoppingListItem[] = [
-  {
-    item_id: 1,
-    ingredient_id: 10,
-    name: 'Tomate',
-    raw_name: 'tomate',
-    normalized_name: 'tomate',
-    quantity: 2,
-    unit: 'u',
-  },
-  {
-    item_id: 2,
-    ingredient_id: 20,
-    name: 'Sal',
-    raw_name: 'sal',
-    normalized_name: 'sal',
-    quantity: null,
-    unit: null,
-  },
-  {
-    item_id: 3,
-    ingredient_id: null,
-    name: 'Ingrediente nuevo',
-    raw_name: 'ingrediente nuevo',
-    normalized_name: 'ingrediente nuevo',
-    quantity: null,
-    unit: null,
-  },
+const selected = 1;
+const other = 2;
+
+const branches: BranchSummary[] = [
+  { branch_id: selected, name: 'Natural', model_3d_url: 'uno.glb' },
+  { branch_id: other, name: 'Piloto', model_3d_url: 'dos.glb' },
 ];
 
-test('classifies ingredients and includes available products', () => {
-  const products: IngredientProductMatch[] = [
-    {
-      ingredient_id: 10,
-      product_id: 100,
-      name: 'Tomate pera',
-      stock_quantity: 4,
-    },
-  ];
+function item(id: number, name: string, ingredientId: number | null): ShoppingListItem {
+  return {
+    item_id: id,
+    ingredient_id: ingredientId,
+    name,
+    raw_name: name,
+    normalized_name: name.toLowerCase(),
+    quantity: null,
+    unit: null,
+    availability: null,
+  };
+}
 
-  const result = buildIngredientAvailabilityItems(items, products);
+function product(
+  branchId: number,
+  ingredientId: number,
+  productId: number,
+  name: string,
+): IngredientProductMatch {
+  return {
+    ingredient_id: ingredientId,
+    branch_id: branchId,
+    product_id: productId,
+    sku: `SKU_${productId}`,
+    name,
+    stock_quantity: 4,
+    section_name: 'Pasillo 1',
+    shelf: 'E01',
+  };
+}
+
+const tomate = item(1, 'Tomate', 10);
+const crema = item(2, 'Crema de leche', 20);
+const chorizo = item(3, 'Chorizo', 30);
+const nuevo = item(4, 'Ingrediente nuevo', null);
+
+const cremaByLeche: IngredientSubstitution = {
+  ingredient_id: 20,
+  substitute_ingredient_id: 21,
+  substitute_name: 'Leche',
+  priority: 1,
+};
+
+function build(
+  items: ShoppingListItem[],
+  products: IngredientProductMatch[],
+  substitutions: IngredientSubstitution[] = [],
+) {
+  return buildIngredientAvailability({
+    items,
+    branchId: selected,
+    branches,
+    products,
+    substitutions,
+  });
+}
+
+test('HU-18: classifies each ingredient against the selected branch', () => {
+  const { items } = build(
+    [tomate, chorizo, nuevo],
+    [product(selected, 10, 100, 'Tomate pera')],
+  );
 
   assert.deepEqual(
-    result.map(({ availability, available_products }) => ({
-      availability,
-      available_products,
-    })),
+    items.map((entry) => entry.availability),
+    ['AVAILABLE', 'UNAVAILABLE', 'NOT_IN_CATALOG'],
+  );
+});
+
+test('HU-20: available products carry their location', () => {
+  const { items } = build([tomate], [product(selected, 10, 100, 'Tomate pera')]);
+
+  assert.deepEqual(items[0].available_products, [
+    {
+      product_id: 100,
+      sku: 'SKU_100',
+      name: 'Tomate pera',
+      stock_quantity: 4,
+      section_name: 'Pasillo 1',
+      shelf: 'E01',
+    },
+  ]);
+});
+
+test('HU-20: available products are included in the route', () => {
+  const { routes: [route] } = build([tomate], [product(selected, 10, 100, 'Tomate pera')]);
+
+  assert.equal(route?.branch_id, selected);
+  assert.deepEqual(
+    route?.stops.map((stop) => [stop.item_id, stop.product_id, stop.is_substitute]),
+    [[1, 100, false]],
+  );
+  assert.deepEqual(route?.missing, []);
+});
+
+test('HU-21: a missing ingredient reports the branch that does have it', () => {
+  const { items } = build([tomate], [product(other, 10, 200, 'Tomate')]);
+
+  assert.equal(items[0].availability, 'UNAVAILABLE');
+  assert.deepEqual(
+    items[0].other_branches.map((entry) => [entry.branch_name, entry.products[0].name]),
+    [['Piloto', 'Tomate']],
+  );
+});
+
+test('HU-21: a missing ingredient suggests the similar one of each branch', () => {
+  const { items } = build(
+    [crema],
+    [product(selected, 21, 110, 'Leche entera')],
+    [cremaByLeche],
+  );
+
+  assert.deepEqual(
+    items[0].substitutes.map((entry) => [
+      entry.branch_name,
+      entry.ingredient_name,
+      entry.products[0].name,
+    ]),
+    [['Natural', 'Leche', 'Leche entera']],
+  );
+});
+
+test('suggests the first alternative that has stock in the branch', () => {
+  const { items } = build(
+    [crema],
+    [product(selected, 22, 120, 'Mantequilla')],
     [
+      cremaByLeche,
       {
-        availability: 'AVAILABLE',
-        available_products: [
-          { product_id: 100, name: 'Tomate pera', stock_quantity: 4 },
-        ],
+        ingredient_id: 20,
+        substitute_ingredient_id: 22,
+        substitute_name: 'Mantequilla',
+        priority: 2,
       },
-      { availability: 'UNAVAILABLE', available_products: [] },
-      { availability: 'NOT_IN_CATALOG', available_products: [] },
     ],
+  );
+
+  assert.equal(items[0].substitutes[0].ingredient_name, 'Mantequilla');
+});
+
+test('does not suggest an alternative in a branch that has the ingredient', () => {
+  const { items } = build(
+    [crema],
+    [product(selected, 20, 130, 'Crema'), product(selected, 21, 110, 'Leche')],
+    [cremaByLeche],
+  );
+
+  assert.deepEqual(items[0].substitutes, []);
+});
+
+test('HU-21: an ingredient without product nor alternative stays missing', () => {
+  const { items, routes: [route] } = build(
+    [tomate, chorizo],
+    [product(selected, 10, 100, 'Tomate')],
+    [cremaByLeche],
+  );
+
+  assert.deepEqual(items[1].other_branches, []);
+  assert.deepEqual(items[1].substitutes, []);
+  assert.deepEqual(route?.missing, ['Chorizo']);
+});
+
+test('the route goes to the branch that has more ingredients', () => {
+  const { routes: [route] } = build(
+    [tomate, crema],
+    [
+      product(selected, 10, 100, 'Tomate'),
+      product(other, 10, 200, 'Tomate'),
+      product(other, 20, 210, 'Crema'),
+    ],
+  );
+
+  assert.equal(route?.branch_id, other);
+  assert.equal(route?.model_3d_url, 'dos.glb');
+  assert.equal(route?.stops.length, 2);
+});
+
+test('the route prefers exact products over alternatives', () => {
+  const { routes: [route] } = build(
+    [tomate, crema],
+    [
+      product(selected, 10, 100, 'Tomate'),
+      product(selected, 21, 110, 'Leche'),
+      product(other, 10, 200, 'Tomate'),
+      product(other, 20, 210, 'Crema'),
+    ],
+    [cremaByLeche],
+  );
+
+  assert.equal(route?.branch_id, other);
+});
+
+test('alternatives go in the route when they cover more of the list', () => {
+  const { routes: [route] } = build(
+    [tomate, crema],
+    [
+      product(other, 10, 200, 'Tomate'),
+      product(selected, 10, 100, 'Tomate'),
+      product(selected, 21, 110, 'Leche'),
+    ],
+    [cremaByLeche],
+  );
+
+  assert.equal(route?.branch_id, selected);
+  assert.deepEqual(
+    route?.stops.map((stop) => [stop.product_name, stop.is_substitute]),
+    [
+      ['Tomate', false],
+      ['Leche', true],
+    ],
+  );
+});
+
+test('a tie keeps the branch chosen by the user', () => {
+  const { routes: [route] } = build(
+    [tomate, crema],
+    [product(other, 20, 210, 'Crema'), product(selected, 10, 100, 'Tomate')],
+  );
+
+  assert.equal(route?.branch_id, selected);
+});
+
+test('a tie also keeps the chosen branch when it comes last', () => {
+  const {
+    routes: [route],
+  } = buildIngredientAvailability({
+    items: [tomate],
+    branchId: other,
+    branches,
+    products: [product(selected, 10, 100, 'Tomate'), product(other, 10, 200, 'Tomate')],
+    substitutions: [],
+  });
+
+  assert.equal(route?.branch_id, other);
+});
+
+test('there is no route when no branch has anything', () => {
+  const { routes } = build([chorizo, nuevo], []);
+
+  assert.deepEqual(routes, []);
+});
+
+test('offers one route per branch that has something, best first', () => {
+  const { routes } = build(
+    [tomate, crema],
+    [
+      product(selected, 10, 100, 'Tomate'),
+      product(other, 10, 200, 'Tomate'),
+      product(other, 20, 210, 'Crema'),
+    ],
+  );
+
+  assert.deepEqual(
+    routes.map((route) => [route.branch_id, route.stops.length, route.missing]),
+    [
+      [other, 2, []],
+      [selected, 1, ['Crema de leche']],
+    ],
+  );
+});
+
+test('a branch without anything from the list offers no route', () => {
+  const { routes } = build([tomate], [product(other, 10, 200, 'Tomate')]);
+
+  assert.deepEqual(
+    routes.map((route) => route.branch_id),
+    [other],
   );
 });

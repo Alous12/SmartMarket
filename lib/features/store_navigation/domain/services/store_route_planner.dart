@@ -1,4 +1,21 @@
+import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../entities/store_model.dart';
+
+/// Ids de las cajas del modelo que corresponden a las paradas de [route]. Las
+/// paradas sin caja en el mapa se omiten.
+List<String> storeProductIdsFor(
+  ShoppingRoute route,
+  List<StoreProduct> products,
+) {
+  final byDbId = {
+    for (final product in products)
+      ?product.dbId: product.id,
+  };
+  return [
+    for (final stop in route.stops)
+      ?byDbId[stop.productId],
+  ];
+}
 
 class StoreRoutePlan {
   const StoreRoutePlan({

@@ -25,6 +25,8 @@ export interface ShoppingListItem {
   normalized_name: string;
   quantity: number | null;
   unit: string | null;
+  /** Última disponibilidad registrada; null si aún no se consultó el inventario. */
+  availability: IngredientAvailabilityStatus | null;
 }
 
 export interface ShoppingList {
@@ -46,19 +48,75 @@ export type IngredientAvailabilityStatus =
 
 export interface AvailableIngredientProduct {
   product_id: number;
+  sku: string;
   name: string;
   stock_quantity: number;
+  section_name: string;
+  shelf: string | null;
 }
 
 export interface IngredientProductMatch extends AvailableIngredientProduct {
   ingredient_id: number;
+  branch_id: number;
+}
+
+/** Ingrediente que puede reemplazar a otro; a menor priority, mejor alternativa. */
+export interface IngredientSubstitution {
+  ingredient_id: number;
+  substitute_ingredient_id: number;
+  substitute_name: string;
+  priority: number;
+}
+
+export interface BranchSummary {
+  branch_id: number;
+  name: string;
+  model_3d_url: string | null;
+}
+
+export interface BranchProducts {
+  branch_id: number;
+  branch_name: string;
+  products: AvailableIngredientProduct[];
+}
+
+/** Alternativa para un ingrediente sin producto en esa sucursal. */
+export interface SubstituteInBranch extends BranchProducts {
+  ingredient_name: string;
 }
 
 export interface IngredientAvailabilityItem extends ShoppingListItem {
+  /** Estado en la sucursal de la petición. */
   availability: IngredientAvailabilityStatus;
   available_products: AvailableIngredientProduct[];
+  /** Otras sucursales que sí tienen el ingrediente. */
+  other_branches: BranchProducts[];
+  substitutes: SubstituteInBranch[];
+}
+
+export interface ShoppingRouteStop {
+  item_id: number;
+  ingredient_name: string;
+  product_id: number;
+  product_name: string;
+  section_name: string;
+  shelf: string | null;
+  is_substitute: boolean;
+}
+
+/** Recorrido de compra por una sucursal. */
+export interface ShoppingRoute {
+  branch_id: number;
+  branch_name: string;
+  model_3d_url: string | null;
+  stops: ShoppingRouteStop[];
+  /** Ingredientes de la lista que no entran en el recorrido. */
+  missing: string[];
 }
 
 export type IngredientAvailabilityList = Omit<ShoppingList, 'items'> & {
+  branch_name: string | null;
   items: IngredientAvailabilityItem[];
+  /** Un recorrido por sucursal con algo de la lista, de mejor a peor. */
+  routes: ShoppingRoute[];
 };

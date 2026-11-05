@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:smartmarket/features/assistant/data/assistant_api.dart';
 import 'package:smartmarket/features/assistant/domain/entities/assistant_request.dart';
+import 'package:smartmarket/features/assistant/domain/entities/recipe_availability.dart';
 
 void main() {
   group('AssistantApi', () {
@@ -181,5 +182,146 @@ void main() {
         expect(request.ingredients.last.inCatalog, isFalse);
       },
     );
+
+    test('consulta la disponibilidad y la ruta de la petición', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(
+          request.url.path,
+          '/api/assistant/requests/7/ingredients/availability',
+        );
+        expect(request.headers['Authorization'], 'Bearer signed-token');
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'data': {
+                'branch_id': 1,
+                'branch_name': 'Supermercado Natural',
+                'items': [
+                  {
+                    'item_id': 3,
+                    'name': 'Leche',
+                    'availability': 'AVAILABLE',
+                    'available_products': [
+                      {'name': 'Leche', 'section_name': 'LACTEOS'},
+                    ],
+                    'other_branches': [],
+                    'substitutes': [],
+                  },
+                  {
+                    'item_id': 4,
+                    'name': 'Azafrán',
+                    'availability': 'NOT_IN_CATALOG',
+                    'available_products': [],
+                    'other_branches': [],
+                    'substitutes': [],
+                  },
+                ],
+                'routes': [
+                  {
+                    'branch_id': 1,
+                    'branch_name': 'Supermercado Natural',
+                    'model_3d_url': 'Modelos_3D/supermercado_1.glb',
+                    'stops': [
+                      {
+                        'item_id': 3,
+                        'ingredient_name': 'Leche',
+                        'product_id': 30,
+                        'product_name': 'Leche',
+                        'section_name': 'LACTEOS',
+                        'is_substitute': false,
+                      },
+                    ],
+                    'missing': ['Azafrán'],
+                  },
+                ],
+              },
+            }),
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final api = AssistantApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      final availability = await api.fetchAvailability(
+        token: 'signed-token',
+        requestId: 7,
+      );
+
+      expect(availability.items.first.status, IngredientStatus.available);
+      expect(availability.items.last.status, IngredientStatus.notInCatalog);
+      expect(availability.nowhere.single.name, 'Azafrán');
+      expect(availability.routes.single.stops.single.productId, 30);
+      expect(availability.routes.single.missing, ['Azafrán']);
+    });
+
+    test('consulta el historial de recetas', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/api/assistant/requests');
+        expect(request.headers['Authorization'], 'Bearer signed-token');
+        return http.Response(
+          jsonEncode({
+            'data': [
+              {
+                'request_id': 15,
+                'recipe_name': 'Silpancho',
+                'branch_id': 1,
+                'ingredient_count': 11,
+                'created_at': '2026-11-02T22:35:18.000Z',
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final api = AssistantApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      final history = await api.fetchHistory(token: 'signed-token');
+
+      expect(history.single.id, 15);
+      expect(history.single.recipeName, 'Silpancho');
+      expect(history.single.ingredientCount, 11);
+    });
+
+    test('rechaza una disponibilidad con un estado desconocido', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'data': {
+              'branch_id': 1,
+              'routes': [],
+              'items': [
+                {
+                  'item_id': 1,
+                  'name': 'Sal',
+                  'availability': 'RARO',
+                  'available_products': [],
+                  'other_branches': [],
+                  'substitutes': [],
+                },
+              ],
+            },
+          }),
+          200,
+        ),
+      );
+      final api = AssistantApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      await expectLater(
+        api.fetchAvailability(token: 'signed-token', requestId: 7),
+        throwsA(isA<AssistantApiException>()),
+      );
+    });
   });
 }

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../domain/entities/assistant_request.dart';
+import '../domain/entities/recipe_availability.dart';
 
 class AssistantApiException implements Exception {
   const AssistantApiException(this.message);
@@ -44,6 +45,7 @@ class AssistantApi {
         },
         body: jsonEncode({'prompt': prompt, 'branch_id': ?branchId}),
       ),
+      parse: (data) => AssistantRequest.fromJson(_object(data)),
       fallback: 'No se pudo enviar tu petición.',
     );
   }
@@ -59,12 +61,49 @@ class AssistantApi {
         _requestsUri.replace(path: '${_requestsUri.path}/$requestId'),
         headers: {'Authorization': 'Bearer $token'},
       ),
+      parse: (data) => AssistantRequest.fromJson(_object(data)),
       fallback: 'No se pudo consultar tu petición.',
     );
   }
 
-  Future<AssistantRequest> _send(
+  /// Compara la lista de la petición con el inventario y devuelve qué hay en
+  /// cada supermercado y la ruta sugerida.
+  Future<RecipeAvailability> fetchAvailability({
+    required String token,
+    required int requestId,
+  }) {
+    return _send(
+      () => _client.get(
+        _requestsUri.replace(
+          path: '${_requestsUri.path}/$requestId/ingredients/availability',
+        ),
+        headers: {'Authorization': 'Bearer $token'},
+      ),
+      parse: (data) => RecipeAvailability.fromJson(_object(data)),
+      fallback: 'No se pudo consultar el inventario.',
+    );
+  }
+
+  /// Recetas que el usuario ya pidió, de la más nueva a la más antigua.
+  Future<List<RecipeHistoryEntry>> fetchHistory({required String token}) {
+    return _send(
+      () => _client.get(
+        _requestsUri,
+        headers: {'Authorization': 'Bearer $token'},
+      ),
+      parse: (data) => [
+        for (final entry in data as List) RecipeHistoryEntry.fromJson(_object(entry)),
+      ],
+      fallback: 'No se pudo cargar el historial.',
+    );
+  }
+
+  static Map<String, dynamic> _object(Object? data) =>
+      data as Map<String, dynamic>;
+
+  Future<T> _send<T>(
     Future<http.Response> Function() send, {
+    required T Function(Object? data) parse,
     required String fallback,
   }) async {
     http.Response response;
@@ -103,10 +142,10 @@ class AssistantApi {
     }
 
     try {
-      return AssistantRequest.fromJson(decoded['data'] as Map<String, dynamic>);
+      return parse(decoded['data']);
     } on Object {
       throw const AssistantApiException(
-        'El servidor devolvió una petición inválida.',
+        'El servidor devolvió una respuesta inválida.',
       );
     }
   }

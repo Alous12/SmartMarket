@@ -21,6 +21,15 @@ export interface AssistantRequest {
   updated_at: Date;
 }
 
+/** Receta ya resuelta por la IA, que se puede repetir sin volver a consultarla. */
+export interface RecipeHistoryEntry {
+  request_id: number;
+  recipe_name: string;
+  branch_id: number;
+  ingredient_count: number;
+  created_at: Date;
+}
+
 /** Petición con los ingredientes de su lista, si ya se generó. */
 export interface AssistantRequestDetail extends AssistantRequest {
   ingredients: ShoppingListItem[];
