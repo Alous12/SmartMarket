@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/data/auth_api.dart';
+import '../../../store_navigation/presentation/providers/store_model_provider.dart';
 import '../../data/assistant_api.dart';
 import '../../domain/entities/recipe_availability.dart';
 import '../providers/assistant_chat_provider.dart';
@@ -11,8 +13,8 @@ import '../widgets/assistant_messages.dart';
 import '../widgets/recipe_history_sheet.dart';
 
 /// Asistente SmartMarket: el usuario escribe el plato o los productos que
-/// necesita comprar o preparar. Al cerrarse eligiendo una ruta devuelve la
-/// [ShoppingRoute] que el mapa debe recorrer.
+/// necesita comprar o preparar. Al elegir una ruta, el mapa la recorre: como
+/// pestaña se la envía y lo abre; abierto encima de otra pantalla, la devuelve.
 class AssistantScreen extends ConsumerStatefulWidget {
   const AssistantScreen({super.key});
 
@@ -75,7 +77,15 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     }
   }
 
-  void _showRoute(ShoppingRoute route) => Navigator.of(context).pop(route);
+  void _showRoute(ShoppingRoute route) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop(route);
+      return;
+    }
+    ref.read(mapRequestProvider.notifier).send(ShowRouteRequest(route));
+    context.goNamed('supermarket');
+  }
 
   void _showError(String message) {
     ScaffoldMessenger.of(
@@ -238,12 +248,14 @@ class _AssistantHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Row(
         children: [
-          _RoundButton(
-            tooltip: 'Volver',
-            onTap: () => Navigator.maybePop(context),
-            child: const Icon(Icons.chevron_left, color: AppTheme.ink),
-          ),
-          const SizedBox(width: 14),
+          if (Navigator.of(context).canPop()) ...[
+            _RoundButton(
+              tooltip: 'Volver',
+              onTap: () => Navigator.maybePop(context),
+              child: const Icon(Icons.chevron_left, color: AppTheme.ink),
+            ),
+            const SizedBox(width: 14),
+          ],
           const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

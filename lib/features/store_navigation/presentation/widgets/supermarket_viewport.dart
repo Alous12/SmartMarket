@@ -47,7 +47,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
   WebViewController? _controller;
   final _loadWatch = Stopwatch()..start();
   bool _ready = false;
-  bool _active = true;
+  bool _appResumed = true;
+  bool _visible = true;
+  bool get _active => _appResumed && _visible;
   bool _closing = false;
   bool _platformAttached = true;
   Future<void>? _shutdown;
@@ -58,10 +60,32 @@ class SupermarketViewportState extends State<SupermarketViewport>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _startInitializationTimeout();
+    unawaited(_initialize());
+  }
+
+  void _startInitializationTimeout() {
+    _initializationTimeout?.cancel();
     _initializationTimeout = Timer(const Duration(seconds: 45), () {
       if (!_ready) _onError('El visor 3D no respondió a tiempo.');
     });
-    unawaited(_initialize());
+  }
+
+  /// Pausa el visor mientras su pestaña está oculta. Oculto puede no avanzar,
+  /// así que el plazo de carga solo corre con el mapa a la vista.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.valuesOf(context).enabled;
+    if (visible == _visible) return;
+    _visible = visible;
+    _command('setActive', _active);
+    if (_ready) return;
+    if (visible) {
+      _startInitializationTimeout();
+    } else {
+      _initializationTimeout?.cancel();
+    }
   }
 
   Future<void> _initialize() async {
@@ -132,6 +156,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _sendNames(widget.productNames, const {});
           _sendAvailable();
           if (_editMode) setEditMode(true, _avatarStart);
+          if (_selectedProduct != null) selectProduct(_selectedProduct);
           final metrics = RenderMetrics(
             fps: (data['fps'] as num?)?.toDouble() ?? 0,
             drawCalls: (data['drawCalls'] as num?)?.toInt() ?? 0,
@@ -182,6 +207,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
   bool _showNodes = false;
   bool _editMode = false;
   String _avatarStart = '';
+  String? _selectedProduct;
   int _walkToken = 0;
   final _arrivals = <int, Completer<void>>{};
 
@@ -210,7 +236,10 @@ class SupermarketViewportState extends State<SupermarketViewport>
   void zoomBy(double factor) => _command('zoomBy', factor);
   void rotateBy(double degrees) => _command('rotateBy', degrees);
   void setView(String name) => _command('setView', name);
-  void selectProduct(String? id) => _command('selectProduct', id ?? '');
+  void selectProduct(String? id) {
+    _selectedProduct = id;
+    _command('selectProduct', id ?? '');
+  }
 
   /// 'rotate': un dedo gira la cámara; 'pan': un dedo desplaza el mapa.
   void setOneFingerMode(String mode) {
@@ -299,7 +328,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _platformAttached = state != AppLifecycleState.detached;
-    _active = state == AppLifecycleState.resumed;
+    _appResumed = state == AppLifecycleState.resumed;
     debugPrint('SMARTMARKET_3D lifecycle=${state.name}');
     _command('setActive', _active);
   }

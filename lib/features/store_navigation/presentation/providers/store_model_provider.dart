@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/store_providers.dart';
+import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/catalog_api.dart';
 import '../../domain/entities/store_model.dart';
@@ -26,6 +27,42 @@ class SelectedStoreNotifier extends Notifier<Supermarket> {
 
   void select(Supermarket store) =>
       state = ref.read(lockedStoreProvider) ?? store;
+}
+
+/// Lo que otra pestaña le pide al mapa, que es quien controla el visor 3D.
+sealed class MapRequest {
+  const MapRequest();
+}
+
+class SelectStoreRequest extends MapRequest {
+  const SelectStoreRequest(this.store);
+
+  final Supermarket store;
+}
+
+class FocusProductRequest extends MapRequest {
+  const FocusProductRequest(this.productId);
+
+  final String productId;
+}
+
+class ShowRouteRequest extends MapRequest {
+  const ShowRouteRequest(this.route);
+
+  final ShoppingRoute route;
+}
+
+final mapRequestProvider = NotifierProvider<MapRequestNotifier, MapRequest?>(
+  MapRequestNotifier.new,
+);
+
+class MapRequestNotifier extends Notifier<MapRequest?> {
+  @override
+  MapRequest? build() => null;
+
+  void send(MapRequest request) => state = request;
+
+  void clear() => state = null;
 }
 
 /// Modelo 3D con los datos de producto (nombre, categoría, precio y stock)

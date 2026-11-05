@@ -50,6 +50,23 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       viewport: () => _viewport,
       onAisleView: _showAisleView,
     )..addListener(() => setState(() {}));
+    ref.listenManual(mapRequestProvider, (previous, request) {
+      // Se atiende fuera del build: la petición puede llegar antes del primero.
+      if (request != null) Future.microtask(() => _handleMapRequest(request));
+    }, fireImmediately: true);
+  }
+
+  Future<void> _handleMapRequest(MapRequest request) async {
+    if (!mounted) return;
+    ref.read(mapRequestProvider.notifier).clear();
+    switch (request) {
+      case SelectStoreRequest(:final store):
+        await _selectStore(store);
+      case FocusProductRequest(:final productId):
+        _viewport?.selectProduct(productId);
+      case ShowRouteRequest(:final route):
+        await _showShoppingRoute(route);
+    }
   }
 
   Future<void> _confirmExit() async {
@@ -123,20 +140,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   void _toast(String message) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(message)));
-
-  Future<void> _openProductList(StoreModel model) async {
-    final action = await showProductList(
-      context,
-      store: model.store,
-      products: model.metadata.products,
-    );
-    if (!mounted || action == null) return;
-    if (action.edit) {
-      await _editProduct(model, action.productId);
-    } else {
-      _viewport?.selectProduct(action.productId);
-    }
-  }
 
   void _advanceNavigation({required bool collected}) {
     ref.read(navigationSessionProvider.notifier).advance(collected: collected);
@@ -271,9 +274,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       case SelectStoreAction(:final store):
         await _selectStore(store);
         break;
-      case OpenProductsAction():
-        await _openProductList(model);
-        break;
       case PickRouteAction():
         await _pickRoute(model);
         break;
@@ -282,10 +282,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         break;
       case ToggleEditAction():
         _edit.toggle(model);
-        break;
-      case OpenAssistantAction():
-        final route = await context.pushNamed<ShoppingRoute>('assistant');
-        if (mounted && route != null) await _showShoppingRoute(route);
         break;
     }
   }
@@ -305,6 +301,8 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         if (!didPop) _confirmExit();
       },
       child: Scaffold(
+        // El teclado no debe cambiar el tamaño del visor ni el encuadre de la cámara.
+        resizeToAvoidBottomInset: false,
         appBar: AppBar(
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,13 +321,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             ],
           ),
           actions: [
-            IconButton(
-              tooltip: 'Productos',
-              icon: const Icon(Icons.inventory_2_outlined),
-              onPressed: model.hasValue
-                  ? () => _openProductList(model.requireValue)
-                  : null,
-            ),
             IconButton(
               tooltip: 'Cerrar sesión',
               icon: const Icon(Icons.logout),

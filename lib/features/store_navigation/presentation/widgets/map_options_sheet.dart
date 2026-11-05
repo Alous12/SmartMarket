@@ -14,10 +14,6 @@ class SelectStoreAction extends MapAction {
   final Supermarket store;
 }
 
-class OpenProductsAction extends MapAction {
-  const OpenProductsAction();
-}
-
 class PickRouteAction extends MapAction {
   const PickRouteAction();
 }
@@ -28,10 +24,6 @@ class OpenUsersAction extends MapAction {
 
 class ToggleEditAction extends MapAction {
   const ToggleEditAction();
-}
-
-class OpenAssistantAction extends MapAction {
-  const OpenAssistantAction();
 }
 
 /// Herramientas del mapa que no aparecen en el diseño principal: cambio de
@@ -156,20 +148,6 @@ class MapOptionsSheet extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.pop(context, const PickRouteAction()),
               ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.inventory_2_outlined),
-              title: const Text('Productos del mapa'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.pop(context, const OpenProductsAction()),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.auto_awesome_outlined),
-              title: const Text('Asistente SmartMarket'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.pop(context, const OpenAssistantAction()),
-            ),
             if (isAdmin) ...[
               ListTile(
                 contentPadding: EdgeInsets.zero,
