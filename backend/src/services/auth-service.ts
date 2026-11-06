@@ -67,6 +67,9 @@ export async function login(body: unknown): Promise<{
 /** Identidad del token más la sucursal actual del usuario. */
 export async function getSession(authorization: string | undefined) {
   const identity = getIdentity(authorization);
+  // Un token sigue siendo válido tras desactivar o borrar al usuario.
+  const user = await userRepository.findById(identity.userId);
+  if (!user?.status) throw new HttpError(401, 'Token inválido o expirado.');
   const branch = await userRepository.findBranchOf(identity.userId);
   return {
     ...identity,

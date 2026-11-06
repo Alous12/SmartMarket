@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/pedestrian_tracker.dart';
 import '../../domain/services/store_route_planner.dart';
 import 'local_viewer_server.dart';
 import 'render_metrics.dart';
@@ -20,6 +21,7 @@ class SupermarketViewport extends StatefulWidget {
     this.onProductTapped,
     this.routePlan,
     this.completedStops = 0,
+    this.walkerPose,
   });
 
   final StoreModel model;
@@ -34,8 +36,11 @@ class SupermarketViewport extends StatefulWidget {
   final ValueChanged<String>? onProductTapped;
   final StoreRoutePlan? routePlan;
 
-  /// Paradas ya superadas; el tramo hasta la última se pinta en verde.
+  /// Paradas ya superadas; sus marcas se pintan en verde.
   final int completedStops;
+
+  /// Dónde está el muñeco; la línea se consume según lo recorrido.
+  final WalkerPose? walkerPose;
 
   @override
   State<SupermarketViewport> createState() => SupermarketViewportState();
@@ -152,6 +157,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _command('setActive', _active);
           _command('setOneFingerMode', _oneFingerMode);
           _command('showNodes', _showNodes);
+          _command('setNorth', widget.model.store.mapNorthDegrees);
           _sendRoute(resetView: true);
           _sendNames(widget.productNames, const {});
           _sendAvailable();
@@ -208,6 +214,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
   bool _editMode = false;
   String _avatarStart = '';
   String? _selectedProduct;
+  WalkerPose? _pose;
   int _walkToken = 0;
   final _arrivals = <int, Completer<void>>{};
 
@@ -236,6 +243,13 @@ class SupermarketViewportState extends State<SupermarketViewport>
   void zoomBy(double factor) => _command('zoomBy', factor);
   void rotateBy(double degrees) => _command('rotateBy', degrees);
   void setView(String name) => _command('setView', name);
+
+  /// Mueve o gira al muñeco sin pasar por una reconstrucción de la pantalla.
+  void setWalkerPose(WalkerPose pose) {
+    _pose = pose;
+    _command('setPose', pose.toJson());
+  }
+
   void selectProduct(String? id) {
     _selectedProduct = id;
     _command('selectProduct', id ?? '');
@@ -256,19 +270,12 @@ class SupermarketViewportState extends State<SupermarketViewport>
     final plan = widget.routePlan;
     if (plan == null) return null;
     final stops = plan.products;
-    final done = widget.completedStops.clamp(0, stops.length);
-    var progressIndex = 0;
-    for (var i = 0; i < done; i++) {
-      final index = plan.nodeIds.indexOf(stops[i].routeNode, progressIndex);
-      if (index < 0) break;
-      progressIndex = index;
-    }
     return {
       'nodeIds': plan.nodeIds,
       'stopNodeIds': plan.stopNodeIds,
       'stopNodes': [for (final product in stops) product.routeNode],
-      'completedStops': done,
-      'progressIndex': progressIndex,
+      'completedStops': widget.completedStops.clamp(0, stops.length),
+      'pose': (_pose ?? widget.walkerPose)?.toJson(),
     };
   }
 
@@ -319,9 +326,13 @@ class SupermarketViewportState extends State<SupermarketViewport>
     if (!identical(oldWidget.productNames, widget.productNames)) {
       _sendNames(widget.productNames, oldWidget.productNames);
     }
+    final pose = widget.walkerPose;
+    if (!identical(oldWidget.walkerPose, pose)) _pose = pose;
     if (oldWidget.routePlan != widget.routePlan ||
         oldWidget.completedStops != widget.completedStops) {
       _sendRoute(resetView: oldWidget.routePlan != widget.routePlan);
+    } else if (pose != null && !identical(oldWidget.walkerPose, pose)) {
+      setWalkerPose(pose);
     }
   }
 

@@ -49,6 +49,11 @@ class AuthController extends AsyncNotifier<AuthSession?> {
     });
   }
 
+  /// Olvida el error del último intento al pasar entre login y registro.
+  void clearError() {
+    if (state.hasError) state = const AsyncData(null);
+  }
+
   Future<void> logout() async {
     await _api.logout();
     state = const AsyncData(null);

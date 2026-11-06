@@ -93,6 +93,46 @@ test('explains the free quota limit to the user', async () => {
   );
 });
 
+test('retries while the model is saturated and returns the answer', async () => {
+  let calls = 0;
+  const fakeFetch: typeof fetch = async (target, options) => {
+    calls++;
+    return calls < 3
+      ? geminiReply({ error: { code: 503 } }, 503)(target, options)
+      : textReply('{"is_recipe":false}')(target, options);
+  };
+
+  const result = await generateJson(input, fakeFetch, [0, 0]);
+
+  assert.deepEqual(result, { is_recipe: false });
+  assert.equal(calls, 3);
+});
+
+test('gives up after the last retry if the model stays saturated', async () => {
+  let calls = 0;
+  const fakeFetch: typeof fetch = async (target, options) => {
+    calls++;
+    return geminiReply({ error: { code: 503 } }, 503)(target, options);
+  };
+
+  await assert.rejects(
+    generateJson(input, fakeFetch, [0, 0]),
+    (error: unknown) => error instanceof AiServiceError && /503/.test(error.message),
+  );
+  assert.equal(calls, 3);
+});
+
+test('does not retry errors that will not change, like the quota limit', async () => {
+  let calls = 0;
+  const fakeFetch: typeof fetch = async (target, options) => {
+    calls++;
+    return geminiReply({ error: { code: 429 } }, 429)(target, options);
+  };
+
+  await assert.rejects(generateJson(input, fakeFetch, [0, 0]), AiServiceError);
+  assert.equal(calls, 1);
+});
+
 test('treats content blocked by Gemini as a rejected request', async () => {
   await assert.rejects(
     generateJson(input, geminiReply({ promptFeedback: { blockReason: 'SAFETY' } })),

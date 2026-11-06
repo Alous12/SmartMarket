@@ -272,7 +272,7 @@ void main() {
                 'recipe_name': 'Silpancho',
                 'branch_id': 1,
                 'ingredient_count': 11,
-                'created_at': '2026-11-02T22:35:18.000Z',
+                'created_at': '2026-11-02T12:00:00.000Z',
               },
             ],
           }),

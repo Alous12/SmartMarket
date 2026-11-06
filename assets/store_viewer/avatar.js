@@ -1,7 +1,11 @@
 import * as THREE from 'three';
-import {S, send, boxMeshes, ghosts} from './state.js';
+import {GLTFLoader} from './vendor/GLTFLoader.js';
+import {S, send, boxMeshes, ghosts, requestRender} from './state.js';
+import {trimRoute} from './route_overlay.js';
 
 const AVATAR_SPEED = 4;                  // metros por segundo
+const FOLLOW_SPEED = 1.3;                // paso de una persona en el supermercado
+const TRIM_STEP = 0.1;                   // cada cuánto se recorta la línea (metros)
 
 export function buildAvatar() {
   const group = new THREE.Group();
@@ -16,7 +20,24 @@ export function buildAvatar() {
     new THREE.MeshBasicMaterial({color: 0xf06435, toneMapped: false}));
   crate.position.set(0, 0.85, 0.34);
   crate.visible = false;
-  group.add(torso, head, crate);
+  // Círculo que señala la posición desde la vista superior, entre los estantes.
+  const ring = new THREE.Mesh(
+    new THREE.CircleGeometry(0.6, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x1f4fa8, transparent: true, opacity: 0.35,
+      depthWrite: false, toneMapped: false,
+    }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.2;                 // sobre la línea y por debajo de los pies
+  // Flecha en el piso: desde arriba el muñeco no deja ver hacia dónde mira.
+  const arrow = new THREE.Mesh(
+    new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(
+      [-0.34, 0, 0.62, 0.34, 0, 0.62, 0, 0, 1.25], 3)),
+    new THREE.MeshBasicMaterial({color: 0x1f4fa8, side: THREE.DoubleSide, depthTest: false, toneMapped: false}));
+  arrow.position.y = 0.2;
+  arrow.renderOrder = 11;
+  group.add(torso, head, crate, ring, arrow);
+  group.userData.placeholder = [torso, head];
   group.visible = false;
   group.name = 'Avatar';
   S.carried = crate;
@@ -24,10 +45,130 @@ export function buildAvatar() {
   return group;
 }
 
+/** Cambia el muñeco provisional por el del GLB. Si falla, el provisional se queda. */
+export async function loadPerson() {
+  const gltf = await new GLTFLoader().loadAsync('./personaje.glb');
+  if (S.disposed) return;
+  gltf.scene.traverse(object => {
+    if (!object.isMesh) return;
+    object.frustumCulled = false;
+    object.renderOrder = 12;             // la línea ignora la profundidad: va antes
+    const {color} = object.material;
+    object.material.dispose();
+    object.material = new THREE.MeshLambertMaterial({color});
+  });
+  // La tienda no usa luces (sus materiales no se iluminan): esto solo afecta al muñeco.
+  S.scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa095, 3));
+  S.avatar ??= buildAvatar();
+  S.avatar.userData.placeholder.forEach(part => { part.visible = false; });
+  S.avatar.add(gltf.scene);
+  const mixer = new THREE.AnimationMixer(gltf.scene);
+  const [clip] = gltf.animations;
+  S.person = {mixer, action: clip ? mixer.clipAction(clip) : null};
+  setWalking(Boolean(S.walk || S.follow?.walking));
+  requestRender();
+}
+
+/** Arranca o detiene la animación de caminar; quieto vuelve a la pose de pie. */
+export function setWalking(walking) {
+  const action = S.person?.action;
+  if (!action) return;
+  if (walking) action.play(); else action.stop();
+}
+
+const shortestTurn = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
+/** Coloca al muñeco en una ruta nueva, en la pose indicada. */
+export function startFollowing(path, pose) {
+  S.avatar ??= buildAvatar();
+  S.avatar.visible = true;
+  setWalking(false);
+  const walked = Number(pose?.walked) || 0;
+  const floor = path.points[0]?.y ?? 0;
+  const x = pose?.x ?? path.points[0]?.x ?? 0;
+  const z = pose?.z ?? path.points[0]?.z ?? 0;
+  S.follow = {
+    path, x, z, floor, targetX: x, targetZ: z, rotation: pose?.rotation ?? 0,
+    distance: walked, target: walked, trimmed: walked,
+    active: false, walking: false, last: 0,
+  };
+  S.avatar.position.set(x, floor, z);
+  S.avatar.rotation.y = S.follow.rotation;
+}
+
+export function stopFollowing() {
+  S.follow = null;
+  setWalking(false);
+  if (S.avatar && !S.editMode) S.avatar.visible = false;
+}
+
+/** Nueva pose de la persona: el muñeco gira y camina hasta allí a su ritmo. */
+export function setPose(pose) {
+  const follow = S.follow;
+  if (!follow || !pose) return;
+  follow.targetX = Number(pose.x) || 0;
+  follow.targetZ = Number(pose.z) || 0;
+  follow.rotation = Number(pose.rotation) || 0;
+  const walked = Math.min(Math.max(Number(pose.walked) || 0, 0), follow.path.total);
+  follow.target = walked;
+  if (walked < follow.distance - 1e-3) {
+    // Reinicio de la ruta: no tiene sentido caminar hacia atrás.
+    follow.distance = follow.trimmed = walked;
+    follow.x = follow.targetX;
+    follow.z = follow.targetZ;
+    S.avatar.position.set(follow.x, follow.floor, follow.z);
+    trimRoute(walked);
+  }
+  if (!follow.active) {
+    follow.active = true;
+    follow.last = performance.now();
+  }
+  requestRender();
+}
+
+export function stepFollow(now) {
+  const follow = S.follow;
+  // El cuadro puede llevar una marca anterior a la de la última pose recibida.
+  const dt = Math.min(0.1, Math.max(0, now - follow.last) / 1000);
+  follow.last = now;
+
+  const dx = follow.targetX - follow.x, dz = follow.targetZ - follow.z;
+  const away = Math.hypot(dx, dz);
+  // Si los pasos llegan más rápido que el muñeco, acelera para no quedarse atrás.
+  const speed = Math.max(FOLLOW_SPEED, away * 1.5);
+  const move = Math.min(away, speed * dt);
+  if (away > 1e-4) {
+    follow.x += dx / away * move;
+    follow.z += dz / away * move;
+  }
+  S.avatar.position.set(follow.x, follow.floor, follow.z);
+
+  const turn = shortestTurn(S.avatar.rotation.y, follow.rotation);
+  S.avatar.rotation.y += turn * Math.min(1, dt * 12);
+
+  const moving = away - move > 1e-3;
+  if (moving !== follow.walking) {
+    follow.walking = moving;
+    setWalking(moving);
+  }
+  if (moving) S.person?.mixer.update(dt * Math.min(speed / FOLLOW_SPEED, 2.5));
+
+  const lineLeft = follow.target - follow.distance;
+  follow.distance += Math.min(lineLeft, Math.max(FOLLOW_SPEED, lineLeft * 1.5) * dt);
+  const lineDone = follow.distance >= follow.target - 1e-4;
+  if ((lineDone && follow.trimmed !== follow.distance) ||
+      follow.distance - follow.trimmed >= TRIM_STEP) {
+    follow.trimmed = follow.distance;
+    trimRoute(follow.distance);
+  }
+  follow.active = moving || !lineDone || Math.abs(turn) > 0.01;
+}
+
 export function stepWalk(now) {
   const {avatar, walk} = S;
   const dt = Math.min(0.1, (now - walk.last) / 1000);
   walk.last = now;
+  S.person?.mixer.update(dt);
   const before = avatar.position.clone();
   let move = AVATAR_SPEED * dt;
   while (move > 0 && walk.index < walk.points.length) {
@@ -49,6 +190,7 @@ export function stepWalk(now) {
   if (walk.index >= walk.points.length) {
     const token = walk.token;
     S.walk = null;
+    setWalking(false);
     send({type: 'avatarArrived', token});
   }
 }

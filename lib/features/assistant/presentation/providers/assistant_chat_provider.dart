@@ -69,7 +69,10 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
     _setSending(true);
     try {
       final token = await _token();
-      final branchId = await ref.read(assistantBranchIdProvider.future);
+      // La pestaña sigue abierta: un fallo puntual quedaría guardado como null.
+      final branchId =
+          await ref.read(assistantBranchIdProvider.future) ??
+          await ref.refresh(assistantBranchIdProvider.future);
       final request = await _api.sendRequest(
         token: token,
         prompt: prompt,

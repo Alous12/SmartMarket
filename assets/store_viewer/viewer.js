@@ -4,8 +4,8 @@ import {instanceStoreMeshes} from './instancing.js';
 import {S, send, bounds, center, productBoxes, boxMeshes, products, requestRender} from './state.js';
 import {stepAnimation, placeHomeCamera, createControls} from './camera.js';
 import {collectProducts, buildMarker} from './products.js';
-import {stepWalk} from './avatar.js';
-import {buildNodesOverlay, buildRouteOverlay} from './route_overlay.js';
+import {loadPerson, stepFollow, stepWalk} from './avatar.js';
+import {buildCompass, buildNodesOverlay, buildRouteOverlay} from './route_overlay.js';
 import {installTapDetection} from './tap.js';
 import {createCommands} from './commands.js';
 
@@ -15,6 +15,7 @@ function releaseObjects(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
   root?.traverse(object => {
     if (object.isInstancedMesh) object.dispose();
+    if (object.isSkinnedMesh) object.skeleton.dispose();
     if (object.geometry) geometries.add(object.geometry);
     const list = Array.isArray(object.material) ? object.material : [object.material];
     list.filter(Boolean).forEach(material => materials.add(material));
@@ -36,6 +37,8 @@ function disposeViewer() {
   S.disposed = true;
   S.active = false;
   S.animation = null;
+  S.follow = null;
+  S.person?.mixer.stopAllAction();
   loading.abort();
   cancelAnimationFrame(S.scheduled);
   S.scheduled = 0;
@@ -56,7 +59,8 @@ function disposeViewer() {
   S.renderer?.forceContextLoss();
   S.renderer?.domElement.remove();
   window.smartMarket = {dispose: disposeViewer};
-  S.renderer = S.scene = S.controls = S.labels = S.marker = S.nodesOverlay = S.routeOverlay = null;
+  S.renderer = S.scene = S.controls = S.labels = S.marker = S.nodesOverlay = S.routeOverlay = S.compass = null;
+  S.avatar = S.person = null;
 }
 
 // Disponible incluso si se cambia de mapa durante fetch/parseAsync.
@@ -79,6 +83,7 @@ function renderFrame(now) {
   S.scheduled = 0;
   if (!S.active || S.disposed) return;
   if (S.walk) stepWalk(now);
+  if (S.follow?.active) stepFollow(now);
   if (S.animation) stepAnimation(now);
   S.controls.update();                   // amortiguación: pide otro cuadro mientras se mueve
   S.renderer.render(S.scene, S.camera);
@@ -90,7 +95,7 @@ function renderFrame(now) {
   } else if (!S.continuous && now - S.lastPublished >= 1000) {
     publish(0);
   }
-  if (S.continuous || S.animation || S.walk) requestRender();
+  if (S.continuous || S.animation || S.walk || S.follow?.active) requestRender();
 }
 S.onFrame = renderFrame;
 
@@ -134,6 +139,7 @@ async function setup() {
   S.marker = buildMarker();
   S.nodesOverlay = buildNodesOverlay(gltf.scene);
   S.routeOverlay = buildRouteOverlay(gltf.scene);
+  S.compass = buildCompass();
 
   placeHomeCamera();
   const controls = createControls();
@@ -153,6 +159,8 @@ async function setup() {
     labels: S.labels.cells.size,
   });
   publish(0);
+  // Después de avisar que está listo: el muñeco no debe retrasar ni romper el mapa.
+  loadPerson().catch(error => console.warn('No se pudo cargar el muñeco:', error));
 }
 
 setup().catch(error => {

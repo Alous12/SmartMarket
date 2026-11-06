@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,10 +13,15 @@ import '../../features/users/presentation/screens/users_screen.dart';
 import '../shell/main_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authControllerProvider);
+  // Un solo router para toda la app: recrearlo al cambiar la sesión reinicia la
+  // pantalla abierta, y con ella los formularios de login y registro.
+  final authChanges = ValueNotifier(0);
+  ref.listen(authControllerProvider, (previous, next) => authChanges.value++);
   final router = GoRouter(
     initialLocation: '/login',
+    refreshListenable: authChanges,
     redirect: (context, state) {
+      final authState = ref.read(authControllerProvider);
       final isLoginRoute = state.matchedLocation == '/login';
       final isAuthRoute = isLoginRoute || state.matchedLocation == '/register';
       if (authState.isLoading) {
@@ -91,6 +97,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
-  ref.onDispose(router.dispose);
+  ref.onDispose(() {
+    router.dispose();
+    authChanges.dispose();
+  });
   return router;
 });

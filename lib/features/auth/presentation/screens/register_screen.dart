@@ -45,6 +45,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
   }
 
+  void _openLogin() {
+    ref.read(authControllerProvider.notifier).clearError();
+    context.goNamed('login');
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
@@ -222,7 +227,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         ),
                         const SizedBox(height: 8),
                         TextButton(
-                          onPressed: isLoading ? null : () => context.goNamed('login'),
+                          onPressed: isLoading ? null : _openLogin,
                           child: const Text('Ya tengo una cuenta'),
                         ),
                       ],

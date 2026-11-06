@@ -266,7 +266,8 @@ petición en segundo plano (`backend/src/services/ai/`):
 3. Si es una receta, se guarda `recipe_name` y sus ingredientes se entregan a
    `generateIngredientList`, que los registra uno por uno en la sucursal de la
    petición; la petición queda `COMPLETED`.
-4. Ante cualquier error (sin clave, límite de la cuota gratuita, respuesta
+4. Si el modelo está saturado (503) se reintenta hasta dos veces.
+5. Ante cualquier otro error (sin clave, límite de la cuota gratuita, respuesta
    inválida) queda `FAILED` con un `response_message` para el usuario y el
    detalle técnico en el log del servidor.
 
@@ -290,6 +291,37 @@ productos que los modelos no traen (Ajo, Papa, Pimentón, Orégano, Canela): com
 todos los espacios del modelo están ocupados, toman el lugar de cajas de relleno
 para conservar su posición en el mapa. Cada admin pertenece a una sola sucursal (`users.branch_id`);
 el admin existente quedó asignado a SmartMarket Piloto.
+
+### Muñeco y seguimiento de la ruta
+
+`Modelos_3D/personaje.glb` es el muñeco de la ruta (580 triángulos, 80 KB, con la
+animación `Caminar`). Se genera con:
+
+```bash
+blender --background --factory-startup --python Modelos_3D/scripts/crear_personaje.py
+```
+
+El muñeco reproduce el movimiento real de la persona con los sensores del teléfono:
+
+1. El acelerómetro cuenta los pasos (`StepDetector`), con un umbral que se adapta a
+   cada forma de caminar. Cada paso vale 0,7 metros.
+2. La brújula da la dirección real y el giroscopio los giros al instante
+   (`YawTracker`). El muñeco gira aunque la persona esté quieta.
+3. `PedestrianTracker` mueve al muñeco hacia donde mira la persona, solo por los
+   pasillos: si choca con un estante se desliza por su borde.
+4. La línea se consume al pasar por ella, hasta la parada pendiente. "Ya lo tengo" o
+   "Saltar" ubican al muñeco en esa parada y corrigen el error acumulado.
+
+El mapa tiene puntos cardinales: arriba es el norte. En un local real se mide con una
+brújula cuántos grados está girado y se pone en `Supermarket.mapNorthDegrees`. El
+botón de la brújula del mapa es una corrección manual: indica que la persona mira
+hacia donde sigue la ruta.
+
+Los sensores se escuchan únicamente con una ruta en curso y la app a la vista. Sin
+brújula se usa el giroscopio y se asume que la persona empieza mirando hacia donde
+sale la ruta; sin ninguno de los dos el muñeco sigue la ruta con los pasos, y sin
+acelerómetro se avanza con los botones de cada parada. Los valores de
+los detectores son iniciales y conviene ajustarlos con pruebas en un teléfono real.
 
 ### Conectar Flutter con el backend
 

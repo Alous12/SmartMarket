@@ -9,11 +9,15 @@ class RouteSummaryCard extends StatelessWidget {
     required this.plan,
     required this.nameOf,
     required this.onClear,
+    this.steps = 0,
   });
 
   final StoreRoutePlan plan;
   final String Function(StoreProduct product) nameOf;
   final VoidCallback onClear;
+
+  /// Pasos detectados: muestra si los sensores están registrando la caminata.
+  final int steps;
 
   @override
   Widget build(BuildContext context) {
@@ -27,8 +31,8 @@ class RouteSummaryCard extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${plan.products.length} paradas · '
-                '${plan.distance.toStringAsFixed(1)} unidades · '
+                '$steps pasos · ${plan.products.length} paradas · '
+                '${plan.distance.toStringAsFixed(1)} m · '
                 '${plan.products.take(2).map(nameOf).join(', ')}'
                 '${plan.products.length > 2 ? '…' : ''}',
                 maxLines: 2,

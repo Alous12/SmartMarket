@@ -5,13 +5,15 @@ export const send = data => window.StoreViewer?.postMessage(JSON.stringify(data)
 // Estado mutable compartido entre módulos (se accede siempre como S.campo).
 export const S = {
   renderer: null, scene: null, camera: null, controls: null, labels: null,
-  marker: null, nodesOverlay: null, routeOverlay: null,
+  marker: null, nodesOverlay: null, routeOverlay: null, compass: null,
   active: true, continuous: false, disposed: false, scheduled: 0,
   animation: null,
   frames: 0, frameStart: performance.now(), lastPublished: 0,
   radius: 30,
   meshBindings: new Map(),               // uuid de malla original -> {mesh, index} visible
   editMode: false, avatar: null, walk: null, carried: null,
+  person: null,                          // muñeco del GLB: {mixer, action}
+  follow: null,                          // avance del muñeco sobre la ruta
   hiddenBoxes: new Set(),
   onFrame: null,                         // callback del bucle de render (lo fija viewer.js)
 };

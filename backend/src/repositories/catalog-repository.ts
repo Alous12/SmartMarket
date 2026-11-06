@@ -138,10 +138,10 @@ export async function findProductsByBranch(
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT p.product_id, p.sku, p.name, p.brand, p.price, p.unit_of_measure,
             p.image_url, p.category_id, c.name AS category_name,
-            COALESCE(i.stock_quantity, 0) AS stock_quantity
+            i.stock_quantity
      FROM products p
      JOIN categories c ON c.category_id = p.category_id
-     LEFT JOIN inventory i
+     JOIN inventory i
        ON i.product_id = p.product_id AND i.branch_id = ?
      WHERE ${conditions.join(' AND ')}
      ORDER BY p.name

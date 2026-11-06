@@ -26,6 +26,7 @@ Future<void> _pumpAssistant(
   WidgetTester tester, {
   MockClientHandler? handler,
   Widget home = const AssistantScreen(),
+  Future<int?> Function()? branchId,
 }) async {
   final client = MockClient(
     handler ?? (request) async => fail('No debería enviarse ninguna petición'),
@@ -40,7 +41,9 @@ Future<void> _pumpAssistant(
             baseUri: Uri.parse('http://localhost:3000/api'),
           ),
         ),
-        assistantBranchIdProvider.overrideWith((ref) async => 2),
+        assistantBranchIdProvider.overrideWith(
+          (ref) => branchId?.call() ?? Future.value(2),
+        ),
         assistantPollIntervalProvider.overrideWithValue(Duration.zero),
       ],
       child: MaterialApp(theme: AppTheme.light, home: home),
@@ -136,7 +139,7 @@ const _history = [
     'recipe_name': 'Lasaña de carne',
     'branch_id': 1,
     'ingredient_count': 3,
-    'created_at': '2026-11-02T22:35:18.000Z',
+    'created_at': '2026-11-02T12:00:00.000Z',
   },
 ];
 
@@ -319,6 +322,24 @@ void main() {
         expect(field.controller!.text, isEmpty);
       },
     );
+
+    testWidgets('vuelve a consultar la sucursal si la primera vez falló', (
+      tester,
+    ) async {
+      final sent = <Map<String, dynamic>>[];
+      var queries = 0;
+      await _pumpAssistant(
+        tester,
+        handler: _assistant([_lasagna], sentBodies: sent),
+        branchId: () async => ++queries == 1 ? null : 2,
+      );
+
+      await tester.enterText(find.byType(TextField), 'lasaña');
+      await tester.tap(find.byTooltip('Enviar'));
+      await tester.pumpAndSettle();
+
+      expect(sent.single['branch_id'], 2);
+    });
 
     testWidgets('no envía una petición vacía', (tester) async {
       await _pumpAssistant(tester);

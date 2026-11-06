@@ -5,7 +5,9 @@ import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/catalog_api.dart';
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/pedestrian_tracker.dart';
 import '../../domain/services/store_route_planner.dart';
+import '../../domain/services/yaw_tracker.dart';
 
 /// Sucursal fija del admin (null para usuarios, que pueden elegir).
 final lockedStoreProvider = Provider<Supermarket?>((ref) {
@@ -153,11 +155,19 @@ class NavigationSession {
     this.plan,
     this.nextProductIndex = 0,
     this.collected = 0,
+    this.pose,
+    this.steps = 0,
   });
 
   final StoreRoutePlan? plan;
   final int nextProductIndex;
   final int collected;
+
+  /// Dónde está el muñeco y cuánto de la ruta se ha recorrido.
+  final WalkerPose? pose;
+
+  /// Pasos detectados desde que empezó la ruta.
+  final int steps;
 
   List<StoreProduct> get stops => plan?.products ?? const [];
   StoreProduct? get current =>
@@ -166,23 +176,89 @@ class NavigationSession {
 }
 
 class NavigationSessionNotifier extends Notifier<NavigationSession> {
+  PedestrianTracker? _tracker;
+  YawReading? _yaw;
+  double _northDegrees = 0;
+
   @override
   NavigationSession build() => const NavigationSession();
 
-  void start(StoreRoutePlan plan) => state = NavigationSession(plan: plan);
+  void start(StoreRoutePlan plan, {double northDegrees = 0}) {
+    final tracker = PedestrianTracker(
+      route: plan.path,
+      walkable: plan.walkable,
+      northDegrees: northDegrees,
+    );
+    _tracker = tracker;
+    _northDegrees = northDegrees;
+    // Si la persona no se mueve no llega otra lectura: se usa la última conocida.
+    _applyYaw(_yaw);
+    state = NavigationSession(plan: plan, pose: tracker.pose);
+  }
 
-  void advance({required bool collected}) {
-    if (state.current == null) return;
+  void _applyYaw(YawReading? yaw) {
+    _yaw = yaw;
+    _tracker?.updateYaw(yaw?.value, absolute: yaw?.absolute ?? false);
+  }
+
+  void _update({int? nextProductIndex, int? collected, int steps = 0}) {
     state = NavigationSession(
       plan: state.plan,
+      nextProductIndex: nextProductIndex ?? state.nextProductIndex,
+      collected: collected ?? state.collected,
+      pose: _tracker?.pose,
+      steps: state.steps + steps,
+    );
+  }
+
+  /// La línea se consume hasta la parada pendiente: la persona confirma cada
+  /// producto con los botones de la parada.
+  void registerSteps(int steps, YawReading? yaw) {
+    final plan = state.plan;
+    final tracker = _tracker;
+    if (plan == null || tracker == null || state.current == null) return;
+    final limit = plan.productDistances[state.nextProductIndex];
+    _applyYaw(yaw);
+    for (var step = 0; step < steps; step++) {
+      tracker.step(limit: limit);
+    }
+    _update(steps: steps);
+  }
+
+  /// Giro sin caminar. No cambia el estado para no reconstruir la pantalla varias
+  /// veces por segundo: devuelve la pose para enviarla directo al visor.
+  WalkerPose? updateYaw(YawReading yaw) {
+    _applyYaw(yaw);
+    return _tracker?.pose;
+  }
+
+  /// La persona indica que mira hacia donde sigue la ruta.
+  void recenter() {
+    _tracker?.recenter();
+    _update();
+  }
+
+  void advance({required bool collected}) {
+    final plan = state.plan;
+    final tracker = _tracker;
+    if (plan == null || tracker == null || state.current == null) return;
+    // Confirmar una parada ubica a la persona allí y corrige el error acumulado.
+    final stop = plan.productDistances[state.nextProductIndex];
+    tracker.moveTo(stop > tracker.walked ? stop : tracker.walked);
+    _update(
       nextProductIndex: state.nextProductIndex + 1,
       collected: state.collected + (collected ? 1 : 0),
     );
   }
 
   void restart() {
-    if (state.plan != null) state = NavigationSession(plan: state.plan);
+    final plan = state.plan;
+    if (plan == null) return;
+    start(plan, northDegrees: _northDegrees);
   }
 
-  void clear() => state = const NavigationSession();
+  void clear() {
+    _tracker = null;
+    state = const NavigationSession();
+  }
 }

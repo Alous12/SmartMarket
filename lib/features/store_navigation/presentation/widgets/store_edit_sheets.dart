@@ -129,7 +129,10 @@ class _ProductFormState extends State<_ProductForm> {
     text: widget.price?.toStringAsFixed(2) ?? '',
   );
   late final _stock = TextEditingController(
-    text: widget.stock?.toStringAsFixed(0) ?? '',
+    text: switch (widget.stock) {
+      null => '',
+      final stock => stock.toStringAsFixed(stock % 1 == 0 ? 0 : 2),
+    },
   );
   int? _categoryId;
 

@@ -3,6 +3,8 @@ import { AiServiceError } from './ai-error.js';
 const apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
 export const defaultGeminiModel = 'gemini-3.5-flash-lite';
 const timeoutMs = 30_000;
+/** Espera antes de cada reintento cuando el modelo está saturado (503). */
+const retryDelaysMs = [1_000, 2_000];
 
 const notConfiguredMessage =
   'El asistente no está disponible en este momento. Avísale al administrador.';
@@ -43,6 +45,7 @@ function errorForStatus(status: number, body: string): AiServiceError {
 export async function generateJson(
   input: GenerateJsonInput,
   fetchImpl: typeof fetch = fetch,
+  retryDelays: number[] = retryDelaysMs,
 ): Promise<unknown> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
@@ -53,33 +56,43 @@ export async function generateJson(
   }
   const model = process.env.GEMINI_MODEL?.trim() || defaultGeminiModel;
 
-  let response: Response;
-  try {
-    response = await fetchImpl(
-      `${apiBaseUrl}/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: input.systemInstruction }] },
-          contents: [{ role: 'user', parts: [{ text: input.userText }] }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-            responseSchema: input.responseSchema,
+  const request = async (): Promise<Response> => {
+    try {
+      return await fetchImpl(
+        `${apiBaseUrl}/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
           },
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-      },
-    );
-  } catch (error) {
-    throw new AiServiceError(
-      `No se pudo conectar con Gemini: ${(error as Error).message}`,
-    );
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: input.systemInstruction }] },
+            contents: [{ role: 'user', parts: [{ text: input.userText }] }],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 4096,
+              responseMimeType: 'application/json',
+              responseSchema: input.responseSchema,
+            },
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+    } catch (error) {
+      throw new AiServiceError(
+        `No se pudo conectar con Gemini: ${(error as Error).message}`,
+      );
+    }
+  };
+
+  // Un 503 es saturación pasajera del modelo: suele resolverse al reintentar.
+  let response = await request();
+  for (const delay of retryDelays) {
+    if (response.status !== 503) break;
+    await response.body?.cancel();
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    response = await request();
   }
 
   if (!response.ok) {

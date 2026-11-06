@@ -35,7 +35,7 @@ export function buildRecipeInstruction(catalogNames: string[]): string {
     '3. Si el mensaje NO trata de una receta (preguntas generales, tareas, programación, temas personales, listas de productos sin un plato, saludos, contenido ofensivo o peligroso), responde is_recipe = false, recipe_name = null, ingredients = [] y en message una frase breve en español explicando que solo ayudas con recetas.',
     '4. Calcula las cantidades para las porciones que indique el usuario; si no indica, para 4 porciones.',
     `5. Usa solo estas unidades: ${allowedUnits.join(', ')} (u = unidades). Si un ingrediente va "al gusto", usa quantity = null y unit = null.`,
-    '6. Escribe cada ingrediente una sola vez, en singular y sin marcas comerciales.',
+    '6. Escribe cada ingrediente una sola vez, en español, en singular y sin marcas comerciales.',
     '7. Si un ingrediente corresponde a uno de este catálogo, escribe su nombre exactamente igual:',
     catalogNames.join(', '),
   ].join('\n');

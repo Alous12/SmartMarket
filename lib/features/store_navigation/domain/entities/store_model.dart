@@ -6,22 +6,30 @@ enum Supermarket {
     title: 'Supermercado_1',
     shortTitle: 'Mini_Market',
     assetPath: 'Modelos_3D/supermercado_1.glb',
+    mapNorthDegrees: 0,
   ),
   piloto(
     title: 'SmartMarket_2',
     shortTitle: 'SuperMarket',
     assetPath: 'Modelos_3D/supermercado_2.glb',
+    mapNorthDegrees: 0,
   );
 
   const Supermarket({
     required this.title,
     required this.shortTitle,
     required this.assetPath,
+    required this.mapNorthDegrees,
   });
 
   final String title;
   final String shortTitle;
   final String assetPath;
+
+  /// Dónde está el norte real: grados en sentido horario desde la parte superior
+  /// del mapa. Con 0, arriba del mapa es el norte; se mide con una brújula en cada
+  /// local.
+  final double mapNorthDegrees;
 }
 
 class StoreModel {

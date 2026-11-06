@@ -24,6 +24,8 @@ class LocalViewerServer {
       '/products.js': 'assets/store_viewer/products.js',
       '/avatar.js': 'assets/store_viewer/avatar.js',
       '/route_overlay.js': 'assets/store_viewer/route_overlay.js',
+      '/route_path.js': 'assets/store_viewer/route_path.js',
+      '/personaje.glb': 'Modelos_3D/personaje.glb',
       '/commands.js': 'assets/store_viewer/commands.js',
       '/tap.js': 'assets/store_viewer/tap.js',
       '/vendor/three.module.min.js':
@@ -76,7 +78,7 @@ class LocalViewerServer {
     }
     try {
       await response.close();
-    } on SocketException {
+    } on IOException {
       // The WebView may close a request while the screen is being disposed.
     }
   }

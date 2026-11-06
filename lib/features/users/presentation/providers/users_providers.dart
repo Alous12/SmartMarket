@@ -15,6 +15,6 @@ final userApiProvider = Provider<UserApi>((ref) {
   );
 });
 
-final usersProvider = FutureProvider<List<User>>((ref) {
+final usersProvider = FutureProvider.autoDispose<List<User>>((ref) {
   return ref.watch(userApiProvider).getUsers();
 });

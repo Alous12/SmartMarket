@@ -23,12 +23,24 @@ class StoreRoutePlan {
     required this.stopNodeIds,
     required this.products,
     required this.distance,
+    required this.path,
+    required this.productDistances,
+    required this.walkable,
   });
 
   final List<String> nodeIds;
   final List<String> stopNodeIds;
   final List<StoreProduct> products;
   final double distance;
+
+  /// Nodos del recorrido en orden, con su posición en el mapa.
+  final List<StoreRouteNode> path;
+
+  /// Distancia desde el inicio hasta cada producto de [products].
+  final List<double> productDistances;
+
+  /// Nodos de todos los pasillos: por donde se puede caminar.
+  final List<StoreRouteNode> walkable;
 }
 
 class StoreRoutePlanner {
@@ -101,6 +113,7 @@ class StoreRoutePlanner {
     final fullPath = <String>[start.id];
     var distance = 0.0;
     var current = start.id;
+    final stopDistances = <String, double>{};
     for (final destination in orderedStops) {
       final leg = _aStar(current, destination, nodes, adjacency);
       if (leg == null) {
@@ -112,6 +125,7 @@ class StoreRoutePlanner {
       fullPath.addAll(leg.nodeIds.skip(1));
       distance += leg.distance;
       current = destination;
+      stopDistances[destination] = distance;
     }
 
     return StoreRoutePlan(
@@ -121,6 +135,12 @@ class StoreRoutePlanner {
         for (final id in orderedStops) ...productsByNode[id]!,
       ]),
       distance: distance,
+      path: List.unmodifiable([for (final id in fullPath) nodes[id]!]),
+      productDistances: List.unmodifiable([
+        for (final id in orderedStops)
+          for (final _ in productsByNode[id]!) stopDistances[id]!,
+      ]),
+      walkable: routeNodes,
     );
   }
 

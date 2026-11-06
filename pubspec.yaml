@@ -39,6 +39,7 @@ dependencies:
   webview_flutter: ^4.14.1
   shared_preferences: ^2.5.3
   http: ^1.6.0
+  sensors_plus: ^7.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -66,6 +67,7 @@ flutter:
   assets:
     - Modelos_3D/supermercado_1.glb
     - Modelos_3D/supermercado_2.glb
+    - Modelos_3D/personaje.glb
     - assets/store_viewer/
     - assets/store_viewer/vendor/
 

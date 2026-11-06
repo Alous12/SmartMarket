@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import {S, requestRender} from './state.js';
+import {S, bounds, center, requestRender} from './state.js';
+import {setPose, startFollowing, stopFollowing} from './avatar.js';
+import {createPath, remainingPoints} from './route_path.js';
 
 export function buildNodesOverlay(root) {
   const positions = new Map();
@@ -44,6 +46,40 @@ export function buildNodesOverlay(root) {
   return group;
 }
 
+/** Puntos cardinales en el piso, dentro de los muros para que entren en pantalla. */
+export function buildCompass() {
+  const group = new THREE.Group();
+  group.name = 'Puntos cardinales';
+  group.position.set(center.x, bounds.min.y + 0.2, center.z);
+  const reach = {x: (bounds.max.x - bounds.min.x) / 2 - 2, z: (bounds.max.z - bounds.min.z) / 2 - 2};
+  const letters = [['N', 0, -reach.z, '#e0583a'], ['S', 0, reach.z, '#1c1f1a'], ['E', reach.x, 0, '#1c1f1a'], ['O', -reach.x, 0, '#1c1f1a']];
+  for (const [letter, x, z, color] of letters) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.beginPath();
+    context.arc(64, 64, 60, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = color;
+    context.font = 'bold 84px sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(letter, 64, 70);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const mark = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 2.4),
+      new THREE.MeshBasicMaterial({map: texture, transparent: true, depthTest: false, toneMapped: false}));
+    mark.rotation.x = -Math.PI / 2;
+    mark.position.set(x, 0, z);
+    mark.renderOrder = 3;
+    group.add(mark);
+  }
+  S.scene.add(group);
+  return group;
+}
+
 export function buildRouteOverlay(root) {
   const positions = new Map();
   root.traverse(object => {
@@ -54,11 +90,15 @@ export function buildRouteOverlay(root) {
   const group = new THREE.Group();
   group.name = 'Ruta calculada';
   group.visible = false;
+  const ribbons = new THREE.Group();
+  const markers = new THREE.Group();
+  group.add(ribbons, markers);
   S.scene.add(group);
-  return {group, positions};
+  return {group, ribbons, markers, positions, path: null, key: ''};
 }
 
 const ROUTE_COLORS = {pending: 0xf06435, done: 0x2fae6b, outline: 0xffffff, start: 0x1f4fa8};
+const LINE_HEIGHT = 0.16;
 
 // Cinta plana con ancho real (las líneas WebGL siempre miden 1 px) más
 // uniones redondeadas y, opcionalmente, flechas que indican el sentido.
@@ -115,44 +155,61 @@ function buildRibbon(points, width, color, order, {arrows = false, arrowsOnly = 
   return mesh;
 }
 
-export function showRoute(route) {
-  if (!S.routeOverlay) return false;
-  const {group, positions} = S.routeOverlay;
-  group.visible = false;
+function clearGroup(group) {
   const geometries = new Set();
   const materials = new Set();
   for (const object of [...group.children]) {
     group.remove(object);
     if (object.geometry) geometries.add(object.geometry);
-    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
-    objectMaterials.filter(Boolean).forEach(material => materials.add(material));
+    if (object.material) materials.add(object.material);
   }
   geometries.forEach(geometry => geometry.dispose());
   materials.forEach(material => material.dispose());
+}
+
+/** Dibuja solo lo que falta: el tramo recorrido desaparece bajo los pies. */
+export function trimRoute(distance) {
+  const {ribbons, path} = S.routeOverlay;
+  clearGroup(ribbons);
+  const line = remainingPoints(path, distance)
+    .map(point => ({...point, y: point.y + LINE_HEIGHT}));
+  if (line.length > 1) {
+    ribbons.add(buildRibbon(line, 0.62, ROUTE_COLORS.outline, 4));
+    ribbons.add(buildRibbon(line, 0.4, ROUTE_COLORS.pending, 5));
+    ribbons.add(buildRibbon(line, 0.3, ROUTE_COLORS.outline, 6, {arrows: true, arrowsOnly: true}));
+  }
+  requestRender();
+}
+
+export function showRoute(route) {
+  if (!S.routeOverlay) return false;
+  const overlay = S.routeOverlay;
+  const {group, ribbons, markers, positions} = overlay;
   const nodeIds = Array.isArray(route?.nodeIds) ? route.nodeIds.map(String) : [];
-  if (!nodeIds.length) {
-    group.visible = false;
-    requestRender();
-    return true;
-  }
   const points = nodeIds.map(id => positions.get(id));
-  if (points.some(point => !point)) return false;
-  const lifted = points.map(point => point.clone().setY(point.y + 0.16));
-  const progress = THREE.MathUtils.clamp(Number(route.progressIndex) || 0, 0, lifted.length - 1);
+  if (!nodeIds.length || points.some(point => !point)) {
+    group.visible = false;
+    clearGroup(ribbons);
+    clearGroup(markers);
+    overlay.path = null;
+    overlay.key = '';
+    stopFollowing();
+    requestRender();
+    return nodeIds.length === 0;
+  }
+
+  const key = nodeIds.join('|');
+  if (key === overlay.key && S.follow) {
+    setPose(route.pose);
+  } else {
+    overlay.key = key;
+    overlay.path = createPath(points);
+    startFollowing(overlay.path, route.pose);
+    trimRoute(S.follow.distance);
+  }
+
+  clearGroup(markers);
   const doneStops = Number(route.completedStops) || 0;
-  const doneLine = lifted.slice(0, progress + 1);
-  const pendingLine = lifted.slice(progress);
-
-  if (pendingLine.length > 1) {
-    group.add(buildRibbon(pendingLine, 0.62, ROUTE_COLORS.outline, 4));
-    group.add(buildRibbon(pendingLine, 0.4, ROUTE_COLORS.pending, 5));
-    group.add(buildRibbon(pendingLine, 0.3, ROUTE_COLORS.outline, 6, {arrows: true, arrowsOnly: true}));
-  }
-  if (doneLine.length > 1) {
-    group.add(buildRibbon(doneLine, 0.62, ROUTE_COLORS.outline, 7));
-    group.add(buildRibbon(doneLine, 0.4, ROUTE_COLORS.done, 8));
-  }
-
   const stopNodes = Array.isArray(route.stopNodes)
     ? route.stopNodes.map(String)
     : (route.stopNodeIds ?? []).map(String);
@@ -164,9 +221,8 @@ export function showRoute(route) {
     marker.position.copy(point).setY(point.y + 0.3);
     marker.scale.setScalar(scale);
     marker.renderOrder = order;
-    group.add(marker);
+    markers.add(marker);
   };
-  addSphere(points[0], ROUTE_COLORS.start, 1, 9);
   stopNodes.forEach((id, index) => {
     const point = positions.get(id);
     if (!point) return;

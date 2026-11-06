@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {S, UP, home, send, products, productBoxes, boxMeshes, requestRender} from './state.js';
 import {animateTo, offsetFromTarget, views} from './camera.js';
 import {selectProduct} from './products.js';
-import {buildAvatar, setGhosts} from './avatar.js';
+import {buildAvatar, setGhosts, setPose, setWalking} from './avatar.js';
 import {showRoute} from './route_overlay.js';
 
 // Comandos que Flutter invoca vía window.smartMarket (nombres y argumentos estables).
@@ -77,8 +77,9 @@ export function createCommands(dispose) {
       const {on, start} = args ?? {};
       S.editMode = Boolean(on);
       S.avatar ??= buildAvatar();
-      S.avatar.visible = S.editMode;
+      S.avatar.visible = S.editMode || Boolean(S.follow);
       S.walk = null;
+      setWalking(false);
       S.carried.visible = false;
       const startPosition = S.routeOverlay.positions.get(String(start));
       if (S.editMode && startPosition) S.avatar.position.copy(startPosition);
@@ -91,14 +92,22 @@ export function createCommands(dispose) {
       const points = nodes.map(n => S.routeOverlay.positions.get(String(n))).filter(Boolean);
       if (!S.avatar || !points.length) { send({type: 'avatarArrived', token}); return false; }
       S.walk = {points, index: 0, last: performance.now(), token};
+      setWalking(true);
       requestRender();
       return true;
     },
     carry(value) { if (S.carried) S.carried.visible = Boolean(value); requestRender(); },
     setProductName(id, name) { return this.setProductNames({[id]: name}); },
     selectProduct(id, focus = true) { return selectProduct(id == null ? null : String(id), focus); },
+    /** Grados en sentido horario desde la parte superior del mapa hasta el norte. */
+    setNorth(degrees) {
+      S.compass.rotation.y = -THREE.MathUtils.degToRad(Number(degrees) || 0);
+      requestRender();
+    },
     showNodes(value) { S.nodesOverlay.visible = Boolean(value); requestRender(); },
     showRoute(route) { return showRoute(route); },
+    /** Pose real de la persona: mueve y gira al muñeco y consume la línea. */
+    setPose(pose) { setPose(pose); },
     setContinuous(value) {
       S.continuous = Boolean(value);
       S.frames = 0;

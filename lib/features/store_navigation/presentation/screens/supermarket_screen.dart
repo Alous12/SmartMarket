@@ -6,8 +6,10 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../data/motion_sensors.dart';
 import '../../domain/entities/store_model.dart';
 import '../../domain/services/store_route_planner.dart';
+import '../controllers/route_motion_controller.dart';
 import '../controllers/store_edit_controller.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/bottom_action.dart';
@@ -40,6 +42,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _exitDialogOpen = false;
   bool _changingStore = false;
   late final StoreEditController _edit;
+  late final RouteMotionController _motion;
   SupermarketViewportState? get _viewport => _viewportKey.currentState;
 
   @override
@@ -50,6 +53,27 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       viewport: () => _viewport,
       onAisleView: _showAisleView,
     )..addListener(() => setState(() {}));
+    _motion = RouteMotionController(
+      sensors: ref.read(motionSensorsProvider),
+      onSteps: (steps, yaw) => ref
+          .read(navigationSessionProvider.notifier)
+          .registerSteps(steps, yaw),
+      onYaw: (yaw) {
+        final pose = ref.read(navigationSessionProvider.notifier).updateYaw(yaw);
+        if (pose != null) _viewport?.setWalkerPose(pose);
+      },
+      onUnavailable: () {
+        if (mounted) {
+          _toast('Este teléfono no detecta pasos: avanza con "Ya lo tengo".');
+        }
+      },
+    );
+    // Los sensores solo corren mientras queda una parada por recorrer.
+    ref.listenManual(
+      navigationSessionProvider.select((session) => session.current != null),
+      (previous, walking) => _motion.active = walking,
+      fireImmediately: true,
+    );
     ref.listenManual(mapRequestProvider, (previous, request) {
       // Se atiende fuera del build: la petición puede llegar antes del primero.
       if (request != null) Future.microtask(() => _handleMapRequest(request));
@@ -94,6 +118,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
 
   @override
   void dispose() {
+    _motion.dispose();
     _edit.dispose();
     _metrics.dispose();
     super.dispose();
@@ -110,6 +135,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       _viewportKey = GlobalKey();
       _panWithOneFinger = false;
       _showNodes = false;
+      _topView = false;
       ref.read(navigationSessionProvider.notifier).clear();
     });
   }
@@ -170,7 +196,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
     try {
       final plan = _planRoute(model, chosen);
-      ref.read(navigationSessionProvider.notifier).start(plan);
+      ref
+          .read(navigationSessionProvider.notifier)
+          .start(plan, northDegrees: model.store.mapNorthDegrees);
       _showTopView();
     } on StateError catch (error) {
       _toast(error.message);
@@ -187,6 +215,11 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       _toast('No se encontró el mapa de ${route.branchName}.');
       return;
     }
+    final locked = ref.read(lockedStoreProvider);
+    if (locked != null && locked != store) {
+      _toast('Tu cuenta solo puede ver ${locked.title}.');
+      return;
+    }
     await _selectStore(store);
     if (!mounted) return;
     final StoreModel model;
@@ -198,7 +231,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
     if (!mounted) return;
     if (model.store != store) {
-      _toast('Tu cuenta solo puede ver ${model.store.title}.');
+      _toast('No se pudo abrir el mapa de ${route.branchName}.');
       return;
     }
     final productIds = storeProductIdsFor(route, model.metadata.products);
@@ -209,7 +242,10 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     try {
       ref
           .read(navigationSessionProvider.notifier)
-          .start(_planRoute(model, productIds));
+          .start(
+            _planRoute(model, productIds),
+            northDegrees: model.store.mapNorthDegrees,
+          );
       _showTopView();
     } on StateError catch (error) {
       _toast(error.message);
@@ -287,6 +323,11 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   }
 
   void _clearRoute() => ref.read(navigationSessionProvider.notifier).clear();
+
+  void _recenter() {
+    ref.read(navigationSessionProvider.notifier).recenter();
+    _toast('Listo: ahora miras hacia donde sigue la ruta.');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -412,6 +453,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           onRetry: _retryViewer,
           routePlan: session.plan,
           completedStops: session.nextProductIndex,
+          walkerPose: session.pose,
         ),
         SafeArea(
           bottom: false,
@@ -485,44 +527,64 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               onFinish: () => _edit.toggle(model),
             ),
           )
+        else if (routePlan != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Sobre la hoja: encima de ella taparía "Saltar" y "Ya lo tengo".
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      MapButton(
+                        tooltip: 'Alinear con la ruta',
+                        onPressed: _recenter,
+                        child: const Icon(
+                          Icons.explore_outlined,
+                          color: AppTheme.ink,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: RouteSummaryCard(
+                          plan: routePlan,
+                          nameOf: nameOf,
+                          onClear: _clearRoute,
+                          steps: session.steps,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                NextStopSheet(
+                  stops: stops,
+                  index: session.nextProductIndex,
+                  collected: session.collected,
+                  nameOf: nameOf,
+                  onSkip: () => _advanceNavigation(collected: false),
+                  onCollected: () => _advanceNavigation(collected: true),
+                  onRestart: () =>
+                      ref.read(navigationSessionProvider.notifier).restart(),
+                ),
+              ],
+            ),
+          )
         else if (isAdmin)
           BottomAction(
             onPressed: () => _edit.toggle(model),
             icon: Icons.edit_location_alt_outlined,
             label: 'Editar tienda',
           )
-        else if (routePlan == null)
+        else
           BottomAction(
             onPressed: () => _pickRoute(model),
             icon: Icons.add_road,
             label: 'Armar mi ruta',
-          )
-        else
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: NextStopSheet(
-              stops: stops,
-              index: session.nextProductIndex,
-              collected: session.collected,
-              nameOf: nameOf,
-              onSkip: () => _advanceNavigation(collected: false),
-              onCollected: () => _advanceNavigation(collected: true),
-              onRestart: () =>
-                  ref.read(navigationSessionProvider.notifier).restart(),
-            ),
-          ),
-        if (routePlan != null && !_edit.editing)
-          Positioned(
-            bottom: _showMetrics ? 238 : 16,
-            left: 16,
-            right: 76,
-            child: RouteSummaryCard(
-              plan: routePlan,
-              nameOf: nameOf,
-              onClear: _clearRoute,
-            ),
           ),
         if (_showMetrics)
           Positioned(
