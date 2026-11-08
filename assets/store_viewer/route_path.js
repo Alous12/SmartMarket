@@ -32,6 +32,17 @@ export function pointAt(path, distance) {
   };
 }
 
+/** Lo ya recorrido: desde el inicio hasta la posición actual. */
+export function walkedPoints(path, distance) {
+  const {points, lengths, total} = path;
+  if (points.length < 2 || distance <= 1e-6) return [];
+  const clamped = Math.min(distance, total);
+  return [
+    ...points.filter((_, index) => lengths[index] < clamped - 1e-6),
+    pointAt(path, clamped),
+  ];
+}
+
 /** Lo que falta por recorrer: desde la posición actual hasta el final. */
 export function remainingPoints(path, distance) {
   const {points, lengths, total} = path;

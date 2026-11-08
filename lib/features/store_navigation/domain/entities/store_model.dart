@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'floor_plan.dart';
+
 enum Supermarket {
   natural(
     title: 'Supermercado_1',
@@ -63,6 +65,8 @@ class StoreProduct {
     this.stock,
     this.dbId,
     this.slotId = '',
+    this.x,
+    this.z,
   });
 
   final String id;
@@ -77,6 +81,11 @@ class StoreProduct {
 
   /// Id del producto en la base de datos (null si solo existe en el modelo).
   final int? dbId;
+
+  /// Posición del producto en el mapa (null si el modelo no la indica). Sirve
+  /// para decir a qué lado del pasillo está.
+  final double? x;
+  final double? z;
 
   StoreProduct copyWith({
     String? name,
@@ -93,6 +102,8 @@ class StoreProduct {
     price: price ?? this.price,
     stock: stock ?? this.stock,
     dbId: dbId ?? this.dbId,
+    x: x,
+    z: z,
   );
 }
 
@@ -129,6 +140,7 @@ class StoreModelMetadata {
     required this.productIds,
     this.routeNodes = const [],
     this.products = const [],
+    this.floorPlan,
   });
 
   final int byteLength;
@@ -140,6 +152,9 @@ class StoreModelMetadata {
   final List<StoreRouteNode> routeNodes;
   final List<StoreProduct> products;
 
+  /// Dónde hay muebles y dónde se puede caminar (null si no se pudo leer).
+  final FloorPlan? floorPlan;
+
   StoreModelMetadata withProducts(List<StoreProduct> products) =>
       StoreModelMetadata(
         byteLength: byteLength,
@@ -150,5 +165,6 @@ class StoreModelMetadata {
         productIds: productIds,
         routeNodes: routeNodes,
         products: List.unmodifiable(products),
+        floorPlan: floorPlan,
       );
 }

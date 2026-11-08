@@ -73,6 +73,8 @@ export async function getSession(authorization: string | undefined) {
   const branch = await userRepository.findBranchOf(identity.userId);
   return {
     ...identity,
+    // El nombre puede haberse cambiado desde el perfil después de emitir el token.
+    username: user.name,
     branch_id: branch?.branch_id ?? null,
     model_3d_url: branch?.model_3d_url ?? null,
   };

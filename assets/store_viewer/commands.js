@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {S, UP, home, send, products, productBoxes, boxMeshes, requestRender} from './state.js';
-import {animateTo, offsetFromTarget, views} from './camera.js';
+import {animateTo, applyInsets, offsetFromTarget, views} from './camera.js';
 import {selectProduct} from './products.js';
 import {buildAvatar, setGhosts, setPose, setWalking} from './avatar.js';
 import {showRoute} from './route_overlay.js';
@@ -106,6 +106,12 @@ export function createCommands(dispose) {
     },
     showNodes(value) { S.nodesOverlay.visible = Boolean(value); requestRender(); },
     showRoute(route) { return showRoute(route); },
+    /** Píxeles tapados arriba y abajo por las tarjetas de la app. */
+    setInsets(args) {
+      S.insets = {top: Math.max(0, Number(args?.top) || 0), bottom: Math.max(0, Number(args?.bottom) || 0)};
+      applyInsets();
+      requestRender();
+    },
     /** Pose real de la persona: mueve y gira al muñeco y consume la línea. */
     setPose(pose) { setPose(pose); },
     setContinuous(value) {

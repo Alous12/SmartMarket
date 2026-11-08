@@ -6,6 +6,7 @@ import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/assistant/presentation/screens/assistant_screen.dart';
+import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/staff/presentation/screens/staff_screen.dart';
 import '../../features/store_navigation/presentation/screens/products_screen.dart';
 import '../../features/store_navigation/presentation/screens/supermarket_screen.dart';
@@ -80,6 +81,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: '/supermercado',
                 name: 'supermarket',
                 builder: (context, state) => const SupermarketScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/perfil',
+                name: 'profile',
+                builder: (context, state) => const ProfileScreen(),
               ),
             ],
           ),

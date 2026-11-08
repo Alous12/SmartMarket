@@ -149,6 +149,13 @@ class PedestrianTracker {
     _z = z;
   }
 
+  /// Da un paso sobre la ruta, sin salirse de ella: la persona nunca atraviesa
+  /// un estante y siempre sigue la línea. El teléfono solo decide hacia dónde
+  /// mira. No avanza más allá de [limit], la próxima parada.
+  void followStep({required double limit}) {
+    moveTo(math.max(_walked, math.min(_walked + stepLength, limit)));
+  }
+
   /// Da un paso. La línea no se consume más allá de [limit], la próxima parada.
   void step({required double limit}) {
     if (_yaw == null) {

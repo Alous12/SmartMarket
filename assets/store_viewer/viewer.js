@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {instanceStoreMeshes} from './instancing.js';
 import {S, send, bounds, center, productBoxes, boxMeshes, products, requestRender} from './state.js';
-import {stepAnimation, placeHomeCamera, createControls} from './camera.js';
+import {stepAnimation, placeHomeCamera, createControls, applyInsets} from './camera.js';
 import {collectProducts, buildMarker} from './products.js';
 import {loadPerson, stepFollow, stepWalk} from './avatar.js';
 import {buildCompass, buildNodesOverlay, buildRouteOverlay} from './route_overlay.js';
@@ -102,7 +102,7 @@ S.onFrame = renderFrame;
 function resize() {
   const width = window.innerWidth, height = window.innerHeight;
   S.camera.aspect = width / Math.max(height, 1);
-  S.camera.updateProjectionMatrix();
+  applyInsets();
   S.renderer.setSize(width, height);
   requestRender();
 }

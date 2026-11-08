@@ -158,6 +158,7 @@ class SupermarketViewportState extends State<SupermarketViewport>
           _command('setOneFingerMode', _oneFingerMode);
           _command('showNodes', _showNodes);
           _command('setNorth', widget.model.store.mapNorthDegrees);
+          _command('setInsets', {'top': _insets.$1, 'bottom': _insets.$2});
           _sendRoute(resetView: true);
           _sendNames(widget.productNames, const {});
           _sendAvailable();
@@ -261,6 +262,16 @@ class SupermarketViewportState extends State<SupermarketViewport>
     _command('setOneFingerMode', mode);
   }
 
+  (double, double) _insets = (0, 0);
+
+  /// Píxeles que tapan las tarjetas arriba y abajo: el mapa se centra en el
+  /// hueco que queda libre.
+  void setInsets(double top, double bottom) {
+    if ((_insets.$1 - top).abs() < 1 && (_insets.$2 - bottom).abs() < 1) return;
+    _insets = (top, bottom);
+    _command('setInsets', {'top': top, 'bottom': bottom});
+  }
+
   void showNodes(bool value) {
     _showNodes = value;
     _command('showNodes', value);
@@ -275,6 +286,9 @@ class SupermarketViewportState extends State<SupermarketViewport>
       'stopNodeIds': plan.stopNodeIds,
       'stopNodes': [for (final product in stops) product.routeNode],
       'completedStops': widget.completedStops.clamp(0, stops.length),
+      // Con el último producto recogido el muñeco termina de llegar y la ruta
+      // se borra del mapa.
+      'finished': widget.completedStops >= stops.length,
       'pose': (_pose ?? widget.walkerPose)?.toJson(),
     };
   }

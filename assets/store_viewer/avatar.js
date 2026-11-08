@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {S, send, boxMeshes, ghosts, requestRender} from './state.js';
-import {trimRoute} from './route_overlay.js';
+import {clearRoute, paintRoute} from './route_overlay.js';
+import {pointAt} from './route_path.js';
 
 const AVATAR_SPEED = 4;                  // metros por segundo
 const FOLLOW_SPEED = 1.3;                // paso de una persona en el supermercado
-const TRIM_STEP = 0.1;                   // cada cuánto se recorta la línea (metros)
+const MAX_FOLLOW_SPEED = 3.5;            // al confirmar una parada lejana se ve caminar el tramo
+const PAINT_STEP = 0.1;                  // cada cuánto se pinta lo recorrido (metros)
 
 export function buildAvatar() {
   const group = new THREE.Group();
@@ -83,13 +85,13 @@ export function startFollowing(path, pose) {
   S.avatar ??= buildAvatar();
   S.avatar.visible = true;
   setWalking(false);
-  const walked = Number(pose?.walked) || 0;
+  const walked = Math.min(Math.max(Number(pose?.walked) || 0, 0), path.total);
   const floor = path.points[0]?.y ?? 0;
-  const x = pose?.x ?? path.points[0]?.x ?? 0;
-  const z = pose?.z ?? path.points[0]?.z ?? 0;
+  // El muñeco siempre está sobre la ruta: nunca atraviesa un estante.
+  const {x, z} = path.points.length ? pointAt(path, walked) : {x: 0, z: 0};
   S.follow = {
-    path, x, z, floor, targetX: x, targetZ: z, rotation: pose?.rotation ?? 0,
-    distance: walked, target: walked, trimmed: walked,
+    path, floor, rotation: pose?.rotation ?? 0,
+    distance: walked, target: walked, painted: walked,
     active: false, walking: false, last: 0,
   };
   S.avatar.position.set(x, floor, z);
@@ -106,18 +108,15 @@ export function stopFollowing() {
 export function setPose(pose) {
   const follow = S.follow;
   if (!follow || !pose) return;
-  follow.targetX = Number(pose.x) || 0;
-  follow.targetZ = Number(pose.z) || 0;
   follow.rotation = Number(pose.rotation) || 0;
   const walked = Math.min(Math.max(Number(pose.walked) || 0, 0), follow.path.total);
   follow.target = walked;
   if (walked < follow.distance - 1e-3) {
     // Reinicio de la ruta: no tiene sentido caminar hacia atrás.
-    follow.distance = follow.trimmed = walked;
-    follow.x = follow.targetX;
-    follow.z = follow.targetZ;
-    S.avatar.position.set(follow.x, follow.floor, follow.z);
-    trimRoute(walked);
+    follow.distance = follow.painted = walked;
+    const {x, z} = pointAt(follow.path, walked);
+    S.avatar.position.set(x, follow.floor, z);
+    paintRoute(walked);
   }
   if (!follow.active) {
     follow.active = true;
@@ -132,36 +131,44 @@ export function stepFollow(now) {
   const dt = Math.min(0.1, Math.max(0, now - follow.last) / 1000);
   follow.last = now;
 
-  const dx = follow.targetX - follow.x, dz = follow.targetZ - follow.z;
-  const away = Math.hypot(dx, dz);
+  // Camina por la línea, nunca en recta hacia el destino: así dobla las
+  // esquinas igual que la ruta y no atraviesa estantes.
+  const left = follow.target - follow.distance;
   // Si los pasos llegan más rápido que el muñeco, acelera para no quedarse atrás.
-  const speed = Math.max(FOLLOW_SPEED, away * 1.5);
-  const move = Math.min(away, speed * dt);
-  if (away > 1e-4) {
-    follow.x += dx / away * move;
-    follow.z += dz / away * move;
+  const speed = Math.min(MAX_FOLLOW_SPEED, Math.max(FOLLOW_SPEED, left * 1.5));
+  const move = Math.min(Math.max(left, 0), speed * dt);
+  follow.distance += move;
+  const {x, z} = pointAt(follow.path, follow.distance);
+  // La cámara acompaña al muñeco, como un navegador en modo navegación.
+  if (!S.animation && S.controls) {
+    const dx = x - S.avatar.position.x, dz = z - S.avatar.position.z;
+    S.camera.position.x += dx;
+    S.camera.position.z += dz;
+    S.controls.target.x += dx;
+    S.controls.target.z += dz;
   }
-  S.avatar.position.set(follow.x, follow.floor, follow.z);
+  S.avatar.position.set(x, follow.floor, z);
 
   const turn = shortestTurn(S.avatar.rotation.y, follow.rotation);
   S.avatar.rotation.y += turn * Math.min(1, dt * 12);
 
-  const moving = away - move > 1e-3;
+  const moving = follow.target - follow.distance > 1e-3;
   if (moving !== follow.walking) {
     follow.walking = moving;
     setWalking(moving);
   }
   if (moving) S.person?.mixer.update(dt * Math.min(speed / FOLLOW_SPEED, 2.5));
 
-  const lineLeft = follow.target - follow.distance;
-  follow.distance += Math.min(lineLeft, Math.max(FOLLOW_SPEED, lineLeft * 1.5) * dt);
-  const lineDone = follow.distance >= follow.target - 1e-4;
-  if ((lineDone && follow.trimmed !== follow.distance) ||
-      follow.distance - follow.trimmed >= TRIM_STEP) {
-    follow.trimmed = follow.distance;
-    trimRoute(follow.distance);
+  if ((!moving && follow.painted !== follow.distance) ||
+      follow.distance - follow.painted >= PAINT_STEP) {
+    follow.painted = follow.distance;
+    paintRoute(follow.distance);
   }
-  follow.active = moving || !lineDone || Math.abs(turn) > 0.01;
+  if (!moving && follow.finishing) {
+    clearRoute();
+    return;
+  }
+  follow.active = moving || Math.abs(turn) > 0.01;
 }
 
 export function stepWalk(now) {

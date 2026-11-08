@@ -86,6 +86,71 @@ class UserApi {
     }
   }
 
+  /// Datos de la persona con la sesión iniciada.
+  Future<User> getProfile() async {
+    final response = await _send(
+      () async => _client.get(_profileUri, headers: await _authHeaders()),
+    );
+    return _readUser(_decodeResponse(response));
+  }
+
+  /// Cambia nombre, apellido o correo de la persona con la sesión iniciada.
+  Future<User> updateProfile({
+    String? name,
+    String? lastName,
+    String? email,
+  }) async {
+    final response = await _send(
+      () async => _client.patch(
+        _profileUri,
+        headers: await _authHeaders(json: true),
+        body: jsonEncode({
+          'name': ?name,
+          'last_name': ?lastName,
+          'email': ?email,
+        }),
+      ),
+    );
+    return _readUser(_decodeResponse(response));
+  }
+
+  /// Cambia la contraseña; el servidor comprueba primero la actual.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final response = await _send(
+      () async => _client.put(
+        _profileUri.replace(path: '${_profileUri.path}/password'),
+        headers: await _authHeaders(json: true),
+        body: jsonEncode({
+          'current_password': currentPassword,
+          'new_password': newPassword,
+        }),
+      ),
+    );
+    // Sin contenido si salió bien; si no, el cuerpo trae el error.
+    if (response.statusCode != 204) _decodeResponse(response);
+  }
+
+  Uri get _profileUri => _usersUri.replace(path: '${_usersUri.path}/me');
+
+  Future<Map<String, String>> _authHeaders({bool json = false}) async {
+    final token = await _tokenReader?.call();
+    return {
+      if (json) 'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  User _readUser(Map<String, dynamic> body) {
+    try {
+      return User.fromJson(body['data'] as Map<String, dynamic>);
+    } on Object {
+      throw const UserApiException('El servidor devolvió un usuario inválido.');
+    }
+  }
+
   Future<http.Response> _send(Future<http.Response> Function() send) async {
     try {
       return await send().timeout(_timeout);

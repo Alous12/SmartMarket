@@ -2,12 +2,38 @@ import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {S, bounds, center, home, requestRender} from './state.js';
 
-// Distancia para que una esfera de radio r quepa en el campo de visión más estrecho.
+/** Fracción del alto de la pantalla que no tapan las tarjetas. */
+function visibleFraction() {
+  const height = Math.max(window.innerHeight, 1);
+  const {top, bottom} = S.insets;
+  return Math.min(1, Math.max(0.25, (height - top - bottom) / height));
+}
+
+// Distancia para que una esfera de radio r quepa en el campo de visión más estrecho
+// de la parte de la pantalla que queda libre.
 export function fitDistance(r) {
   const camera = S.camera;
-  const vertical = THREE.MathUtils.degToRad(camera.fov) / 2;
-  const horizontal = Math.atan(Math.tan(vertical) * camera.aspect);
+  const full = THREE.MathUtils.degToRad(camera.fov) / 2;
+  const vertical = Math.atan(Math.tan(full) * visibleFraction());
+  const horizontal = Math.atan(Math.tan(full) * camera.aspect);
   return r / Math.sin(Math.min(vertical, horizontal));
+}
+
+/**
+ * Corre el centro de la imagen al hueco entre las tarjetas de arriba y de abajo:
+ * lo que la cámara mira queda a la vista y no detrás de una tarjeta.
+ */
+export function applyInsets() {
+  const camera = S.camera;
+  if (!camera) return;
+  const width = window.innerWidth, height = Math.max(window.innerHeight, 1);
+  const {top, bottom} = S.insets;
+  if (top + bottom <= 0 || height - top - bottom < 80) {
+    camera.clearViewOffset();
+  } else {
+    camera.setViewOffset(width, height, 0, (bottom - top) / 2, width, height);
+  }
+  camera.updateProjectionMatrix();
 }
 
 export function animateTo(position, target, duration = 450) {
@@ -47,10 +73,20 @@ export function clampTarget() {
 
 export const views = {
   inicio: () => ({position: home.position, target: home.target}),
-  superior: () => ({
-    position: center.clone().add(new THREE.Vector3(0, fitDistance(S.radius) * 0.85, 0.01)),
-    target: center.clone(),
-  }),
+  superior: () => {
+    // Con una ruta en curso, como un navegador: centrada en la persona y más cerca.
+    if (S.follow && S.avatar) {
+      const target = S.avatar.position.clone().setY(bounds.min.y);
+      return {
+        position: target.clone().add(new THREE.Vector3(0, fitDistance(Math.min(S.radius, 14)), 0.01)),
+        target,
+      };
+    }
+    return {
+      position: center.clone().add(new THREE.Vector3(0, fitDistance(S.radius) * 0.85, 0.01)),
+      target: center.clone(),
+    };
+  },
   frente: () => ({
     position: center.clone().add(new THREE.Vector3(0, 0.35, 0.94).multiplyScalar(fitDistance(S.radius) * 0.85)),
     target: center.clone(),

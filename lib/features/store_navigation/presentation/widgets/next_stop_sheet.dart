@@ -15,7 +15,9 @@ String _initials(String name) {
   return letters.toUpperCase();
 }
 
-class NextStopSheet extends StatelessWidget {
+/// Hoja con la parada actual. Es compacta para dejar ver el mapa y, al tocar la
+/// barrita de arriba, se pliega a una sola línea con los botones.
+class NextStopSheet extends StatefulWidget {
   const NextStopSheet({
     super.key,
     required this.stops,
@@ -36,81 +38,119 @@ class NextStopSheet extends StatelessWidget {
   final VoidCallback onRestart;
 
   @override
+  State<NextStopSheet> createState() => _NextStopSheetState();
+}
+
+class _NextStopSheetState extends State<NextStopSheet> {
+  bool _folded = false;
+
+  void _toggle() => setState(() => _folded = !_folded);
+
+  @override
   Widget build(BuildContext context) {
+    final stops = widget.stops;
+    final index = widget.index;
     final finished = index >= stops.length;
     final current = finished ? null : stops[index];
     final progress = stops.isEmpty ? 0.0 : index / stops.length;
+    final header = finished
+        ? 'Ruta completada'
+        : _folded
+        ? '${widget.nameOf(current!)} · ${index + 1} de ${stops.length}'
+        : 'Siguiente parada · ${index + 1} de ${stops.length}';
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: AppTheme.cardShadow,
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppTheme.track,
-                    borderRadius: BorderRadius.circular(3),
+              Semantics(
+                button: true,
+                label: _folded ? 'Mostrar la parada' : 'Plegar la parada',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggle,
+                  onVerticalDragEnd: (details) {
+                    final velocity = details.primaryVelocity ?? 0;
+                    if (velocity > 0 && !_folded) _toggle();
+                    if (velocity < 0 && _folded) _toggle();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Center(
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppTheme.track,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
               Row(
                 children: [
                   Expanded(
                     child: Text(
-                      finished
-                          ? 'Ruta completada'
-                          : 'Siguiente parada · ${index + 1} de ${stops.length}',
-                      style: const TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 15,
+                      header,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _folded && !finished
+                            ? AppTheme.ink
+                            : AppTheme.muted,
+                        fontSize: 14,
+                        fontWeight: _folded && !finished
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                       ),
                     ),
                   ),
-                  const Icon(Icons.schedule, size: 16, color: AppTheme.ink),
+                  const Icon(Icons.schedule, size: 15, color: AppTheme.ink),
                   const SizedBox(width: 4),
                   Text(
-                    '$collected de ${stops.length} listos',
+                    '${widget.collected} de ${stops.length} listos',
                     style: const TextStyle(
                       color: AppTheme.ink,
-                      fontSize: 15,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 8,
-                  color: AppTheme.lime,
-                  backgroundColor: AppTheme.track,
+              if (!_folded) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 5,
+                    color: AppTheme.lime,
+                    backgroundColor: AppTheme.track,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              if (current != null)
-                StopProduct(product: current, name: nameOf(current))
-              else
-                const StopFinished(),
-              const SizedBox(height: 20),
+                const SizedBox(height: 12),
+                if (current != null)
+                  StopProduct(product: current, name: widget.nameOf(current))
+                else
+                  const StopFinished(),
+              ],
+              const SizedBox(height: 12),
               SizedBox(
-                height: 60,
+                height: 48,
                 child: finished
                     ? FilledButton.icon(
-                        onPressed: onRestart,
+                        onPressed: widget.onRestart,
                         icon: const Icon(Icons.replay),
                         label: const Text('Repetir ruta'),
                       )
@@ -120,7 +160,7 @@ class NextStopSheet extends StatelessWidget {
                           Expanded(
                             flex: 2,
                             child: OutlinedButton(
-                              onPressed: onSkip,
+                              onPressed: widget.onSkip,
                               child: const Text('Saltar'),
                             ),
                           ),
@@ -128,7 +168,7 @@ class NextStopSheet extends StatelessWidget {
                           Expanded(
                             flex: 4,
                             child: FilledButton.icon(
-                              onPressed: onCollected,
+                              onPressed: widget.onCollected,
                               icon: const Icon(Icons.check),
                               label: const Text('Ya lo tengo'),
                             ),
@@ -155,23 +195,23 @@ class StopProduct extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 72,
-          height: 72,
+          width: 48,
+          height: 48,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: AppTheme.lime,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
             _initials(name),
             style: const TextStyle(
               color: AppTheme.ink,
-              fontSize: 24,
+              fontSize: 18,
               fontWeight: FontWeight.w700,
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -182,38 +222,19 @@ class StopProduct extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppTheme.ink,
-                  fontSize: 21,
+                  fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 2),
               Text(
                 [
                   if (product.category.isNotEmpty) product.category,
                   product.id,
+                  '1 unidad',
                 ].join(' · '),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 15),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: AppTheme.tint,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  '1 unidad',
-                  style: TextStyle(
-                    color: AppTheme.green,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                style: const TextStyle(color: AppTheme.muted, fontSize: 14),
               ),
             ],
           ),
@@ -231,15 +252,15 @@ class StopFinished extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 72,
-          height: 72,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             color: AppTheme.lime,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: const Icon(Icons.check, size: 34, color: AppTheme.ink),
+          child: const Icon(Icons.check, size: 26, color: AppTheme.ink),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 14),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -248,14 +269,13 @@ class StopFinished extends StatelessWidget {
                 '¡Listo! Tienes todo',
                 style: TextStyle(
                   color: AppTheme.ink,
-                  fontSize: 21,
+                  fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              SizedBox(height: 2),
               Text(
-                'Dirígete a la caja para pagar.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 15),
+                'Ya recogiste todos tus productos.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 14),
               ),
             ],
           ),

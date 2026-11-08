@@ -93,18 +93,18 @@ Future<void> _openTab(WidgetTester tester, String label) async {
 }
 
 void main() {
-  testWidgets('la barra muestra las tres pestañas y abre Supermercados', (
+  testWidgets('la barra muestra las cuatro pestañas y abre Supermercados', (
     tester,
   ) async {
     await _pumpApp(tester);
 
-    expect(find.byType(NavigationDestination), findsNWidgets(3));
-    for (final label in ['Asistente', 'Productos', 'Supermercados']) {
+    expect(find.byType(NavigationDestination), findsNWidgets(4));
+    for (final label in ['Asistente', 'Productos', 'Supermercados', 'Perfil']) {
       expect(find.widgetWithText(NavigationDestination, label), findsOneWidget);
     }
     final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
     expect(bar.selectedIndex, 2);
-    expect(find.text(Supermarket.natural.title), findsOneWidget);
+    expect(find.text('Bienvenido, Ana'), findsOneWidget);
     await _closeApp(tester);
   });
 
@@ -133,10 +133,16 @@ void main() {
     await _closeApp(tester);
   });
 
-  testWidgets('el usuario cambia de sucursal desde Productos', (tester) async {
+  testWidgets('la sucursal se elige en Supermercados y Productos la respeta', (
+    tester,
+  ) async {
     final repository = await _pumpApp(tester);
 
     await _openTab(tester, 'Productos');
+    // El selector solo está en la pantalla de Supermercados.
+    expect(find.byType(StoreSegments), findsNothing);
+
+    await _openTab(tester, 'Supermercados');
     await tester.tap(find.text(Supermarket.piloto.shortTitle));
     await tester.pump();
     // El mapa cierra el servidor local de su visor con E/S real antes de cambiar.
@@ -145,6 +151,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _openTab(tester, 'Productos');
     expect(find.text('Leche de SuperMarket'), findsOneWidget);
     expect(repository.requested, [Supermarket.natural, Supermarket.piloto]);
     await _closeApp(tester);

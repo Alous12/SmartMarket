@@ -19,9 +19,10 @@ final lockedStoreProvider = Provider<Supermarket?>((ref) {
 });
 
 /// Supermercado elegido con los botones de la pantalla.
-final selectedStoreProvider = NotifierProvider<SelectedStoreNotifier, Supermarket>(
-  SelectedStoreNotifier.new,
-);
+final selectedStoreProvider =
+    NotifierProvider<SelectedStoreNotifier, Supermarket>(
+      SelectedStoreNotifier.new,
+    );
 
 class SelectedStoreNotifier extends Notifier<Supermarket> {
   @override
@@ -113,9 +114,10 @@ final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
 
 /// Nombres editados del supermercado elegido (product_id -> nombre).
 final productNamesProvider =
-    AsyncNotifierProvider.autoDispose<ProductNamesNotifier, Map<String, String>>(
-      ProductNamesNotifier.new,
-    );
+    AsyncNotifierProvider.autoDispose<
+      ProductNamesNotifier,
+      Map<String, String>
+    >(ProductNamesNotifier.new);
 
 class ProductNamesNotifier extends AsyncNotifier<Map<String, String>> {
   @override
@@ -211,8 +213,8 @@ class NavigationSessionNotifier extends Notifier<NavigationSession> {
     );
   }
 
-  /// La línea se consume hasta la parada pendiente: la persona confirma cada
-  /// producto con los botones de la parada.
+  /// Cada paso avanza sobre la ruta hasta la parada pendiente: la persona
+  /// confirma cada producto con los botones de la parada.
   void registerSteps(int steps, YawReading? yaw) {
     final plan = state.plan;
     final tracker = _tracker;
@@ -220,7 +222,7 @@ class NavigationSessionNotifier extends Notifier<NavigationSession> {
     final limit = plan.productDistances[state.nextProductIndex];
     _applyYaw(yaw);
     for (var step = 0; step < steps; step++) {
-      tracker.step(limit: limit);
+      tracker.followStep(limit: limit);
     }
     _update(steps: steps);
   }

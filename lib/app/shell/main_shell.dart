@@ -66,6 +66,11 @@ class MainShell extends StatelessWidget {
               selectedIcon: Icon(Icons.storefront),
               label: 'Supermercados',
             ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Perfil',
+            ),
           ],
         ),
       ),

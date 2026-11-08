@@ -14,6 +14,7 @@ export const S = {
   editMode: false, avatar: null, walk: null, carried: null,
   person: null,                          // muñeco del GLB: {mixer, action}
   follow: null,                          // avance del muñeco sobre la ruta
+  insets: {top: 0, bottom: 0},           // pantalla tapada por las tarjetas (px CSS)
   hiddenBoxes: new Set(),
   onFrame: null,                         // callback del bucle de render (lo fija viewer.js)
 };

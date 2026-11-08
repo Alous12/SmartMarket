@@ -49,6 +49,12 @@ class AuthController extends AsyncNotifier<AuthSession?> {
     });
   }
 
+  /// El nombre cambió desde el perfil: se muestra el nuevo sin volver a entrar.
+  void updateUsername(String username) {
+    final session = state.asData?.value;
+    if (session != null) state = AsyncData(session.withUsername(username));
+  }
+
   /// Olvida el error del último intento al pasar entre login y registro.
   void clearError() {
     if (state.hasError) state = const AsyncData(null);

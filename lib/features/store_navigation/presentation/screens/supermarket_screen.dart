@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../assistant/domain/entities/recipe_availability.dart';
+import '../../../auth/data/auth_api.dart' show AuthSession;
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/motion_sensors.dart';
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/route_guidance.dart';
 import '../../domain/services/store_route_planner.dart';
 import '../controllers/route_motion_controller.dart';
 import '../controllers/store_edit_controller.dart';
@@ -20,6 +22,7 @@ import '../widgets/metrics_card.dart';
 import '../widgets/next_stop_sheet.dart';
 import '../widgets/product_sheets.dart';
 import '../widgets/render_metrics.dart';
+import '../widgets/route_instruction.dart';
 import '../widgets/route_picker_sheet.dart';
 import '../widgets/route_summary_card.dart';
 import '../widgets/store_segments.dart';
@@ -43,6 +46,10 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _changingStore = false;
   late final StoreEditController _edit;
   late final RouteMotionController _motion;
+  StoreRoutePlan? _guidancePlan;
+  RouteGuidance? _guidance;
+  final _topPanelKey = GlobalKey();
+  final _bottomPanelKey = GlobalKey();
   SupermarketViewportState? get _viewport => _viewportKey.currentState;
 
   @override
@@ -59,7 +66,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           .read(navigationSessionProvider.notifier)
           .registerSteps(steps, yaw),
       onYaw: (yaw) {
-        final pose = ref.read(navigationSessionProvider.notifier).updateYaw(yaw);
+        final pose = ref
+            .read(navigationSessionProvider.notifier)
+            .updateYaw(yaw);
         if (pose != null) _viewport?.setWalkerPose(pose);
       },
       onUnavailable: () {
@@ -163,22 +172,77 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
-  void _toast(String message) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(message)));
+  /// Aviso breve. Con la hoja de la parada abierta flota sobre ella para no
+  /// tapar "Saltar" ni "Ya lo tengo".
+  void _toast(String message) {
+    // Se espera al próximo cuadro: la hoja puede estar apareciendo recién.
+    WidgetsBinding.instance.endOfFrame.then((_) {
+      if (mounted) _showToast(message);
+    });
+  }
+
+  void _showToast(String message) {
+    final panel = _bottomPanelKey.currentContext?.findRenderObject();
+    final above = panel is RenderBox && panel.hasSize ? panel.size.height : 0.0;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: above > 0 ? SnackBarBehavior.floating : null,
+        margin: above > 0 ? EdgeInsets.fromLTRB(16, 0, 16, above + 8) : null,
+      ),
+    );
+  }
 
   void _advanceNavigation({required bool collected}) {
     ref.read(navigationSessionProvider.notifier).advance(collected: collected);
   }
 
+  /// Ruta desde la entrada que termina en el último producto.
   StoreRoutePlan _planRoute(StoreModel model, List<String> productIds) {
-    final startNode = startNodeOf(model);
     return const StoreRoutePlanner().plan(
       routeNodes: model.metadata.routeNodes,
       products: model.metadata.products,
-      startNodeId: startNode,
+      startNodeId: startNodeOf(model),
       productIds: productIds,
+      floorPlan: model.metadata.floorPlan,
     );
+  }
+
+  void _startNavigation(StoreModel model, StoreRoutePlan plan) {
+    ref
+        .read(navigationSessionProvider.notifier)
+        .start(plan, northDegrees: model.store.mapNorthDegrees);
+  }
+
+  /// Le dice al visor cuánto tapan las tarjetas, para que centre el mapa (y al
+  /// muñeco) en la parte que se ve.
+  void _syncInsets() {
+    if (!mounted) return;
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return;
+    final origin = viewport.localToGlobal(Offset.zero).dy;
+    double edge(GlobalKey key, {required bool bottom}) {
+      final box = key.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return 0;
+      final top = box.localToGlobal(Offset.zero).dy - origin;
+      return bottom
+          ? (viewport.size.height - top).clamp(0, viewport.size.height)
+          : (top + box.size.height).clamp(0, viewport.size.height);
+    }
+
+    _viewport?.setInsets(
+      edge(_topPanelKey, bottom: false),
+      edge(_bottomPanelKey, bottom: true),
+    );
+  }
+
+  RouteGuidance? _guidanceFor(StoreRoutePlan? plan) {
+    if (plan == null) return null;
+    if (!identical(plan, _guidancePlan)) {
+      _guidancePlan = plan;
+      _guidance = RouteGuidance(plan.path);
+    }
+    return _guidance;
   }
 
   /// Ruta con los productos que elige el usuario; sin selección se quita la ruta.
@@ -195,10 +259,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       return;
     }
     try {
-      final plan = _planRoute(model, chosen);
-      ref
-          .read(navigationSessionProvider.notifier)
-          .start(plan, northDegrees: model.store.mapNorthDegrees);
+      _startNavigation(model, _planRoute(model, chosen));
       _showTopView();
     } on StateError catch (error) {
       _toast(error.message);
@@ -240,12 +301,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       return;
     }
     try {
-      ref
-          .read(navigationSessionProvider.notifier)
-          .start(
-            _planRoute(model, productIds),
-            northDegrees: model.store.mapNorthDegrees,
-          );
+      _startNavigation(model, _planRoute(model, productIds));
       _showTopView();
     } on StateError catch (error) {
       _toast(error.message);
@@ -329,6 +385,12 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     _toast('Listo: ahora miras hacia donde sigue la ruta.');
   }
 
+  /// Saludo con el nombre (sin apellido) de quien inició sesión.
+  static String _welcome(AuthSession? session) {
+    final name = session?.username.trim() ?? '';
+    return name.isEmpty ? 'Bienvenido' : 'Bienvenido, $name';
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = ref.watch(selectedStoreProvider);
@@ -353,7 +415,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
               Text(
-                store.title,
+                _welcome(ref.watch(authControllerProvider).asData?.value),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -366,13 +430,6 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               tooltip: 'Cerrar sesión',
               icon: const Icon(Icons.logout),
               onPressed: _logout,
-            ),
-            IconButton(
-              tooltip: 'Rendimiento',
-              isSelected: _showMetrics,
-              selectedIcon: const Icon(Icons.speed),
-              icon: const Icon(Icons.speed_outlined),
-              onPressed: () => setState(() => _showMetrics = !_showMetrics),
             ),
             const SizedBox(width: 8),
           ],
@@ -426,6 +483,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   }
 
   Widget _buildNavigation(BuildContext context, StoreModel model) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncInsets());
     final names = ref.watch(productNamesProvider).value ?? const {};
     final viewerNames = {
       for (final product in model.metadata.products) product.id: product.name,
@@ -433,9 +491,13 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     };
     final session = ref.watch(navigationSessionProvider);
     final stops = session.stops;
-    final current = session.current;
     String nameOf(StoreProduct product) => names[product.id] ?? product.name;
     final routePlan = session.plan;
+    final instruction = routeInstruction(
+      session: session,
+      guidance: _guidanceFor(routePlan),
+      nameOf: nameOf,
+    );
     final isAdmin =
         ref.watch(authControllerProvider).asData?.value?.isAdmin ?? false;
     return Stack(
@@ -464,16 +526,10 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
               children: [
                 if (!isAdmin) ...[
                   InstructionCard(
-                    title: routePlan == null
-                        ? 'Arma tu ruta'
-                        : current == null
-                        ? 'Dirígete a las cajas'
-                        : 'Dirígete a ${locationOf(current)}',
-                    subtitle: routePlan == null
-                        ? 'Elige los productos que buscas'
-                        : current == null
-                        ? 'Ya recorriste todas las paradas'
-                        : 'Busca ${nameOf(current)}',
+                    key: _topPanelKey,
+                    title: instruction.title,
+                    subtitle: instruction.subtitle,
+                    icon: instruction.icon,
                     value: '${session.pending}',
                     unit: session.pending == 1 ? 'parada' : 'paradas',
                   ),
@@ -532,46 +588,59 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Sobre la hoja: encima de ella taparía "Saltar" y "Ya lo tengo".
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
-                  child: Row(
-                    children: [
-                      MapButton(
-                        tooltip: 'Alinear con la ruta',
-                        onPressed: _recenter,
-                        child: const Icon(
-                          Icons.explore_outlined,
-                          color: AppTheme.ink,
-                        ),
+            // La hoja cambia de alto al plegarse: el mapa se vuelve a centrar.
+            child: NotificationListener<SizeChangedLayoutNotification>(
+              onNotification: (_) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _syncInsets(),
+                );
+                return true;
+              },
+              child: SizeChangedLayoutNotifier(
+                child: Column(
+                  key: _bottomPanelKey,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Sobre la hoja: encima de ella taparía "Saltar" y "Ya lo tengo".
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
+                      child: Row(
+                        children: [
+                          MapButton(
+                            tooltip: 'Alinear con la ruta',
+                            onPressed: _recenter,
+                            child: const Icon(
+                              Icons.explore_outlined,
+                              color: AppTheme.ink,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: RouteSummaryCard(
+                              plan: routePlan,
+                              nameOf: nameOf,
+                              onClear: _clearRoute,
+                              steps: session.steps,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: RouteSummaryCard(
-                          plan: routePlan,
-                          nameOf: nameOf,
-                          onClear: _clearRoute,
-                          steps: session.steps,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    NextStopSheet(
+                      stops: stops,
+                      index: session.nextProductIndex,
+                      collected: session.collected,
+                      nameOf: nameOf,
+                      onSkip: () => _advanceNavigation(collected: false),
+                      onCollected: () => _advanceNavigation(collected: true),
+                      onRestart: () => ref
+                          .read(navigationSessionProvider.notifier)
+                          .restart(),
+                    ),
+                  ],
                 ),
-                NextStopSheet(
-                  stops: stops,
-                  index: session.nextProductIndex,
-                  collected: session.collected,
-                  nameOf: nameOf,
-                  onSkip: () => _advanceNavigation(collected: false),
-                  onCollected: () => _advanceNavigation(collected: true),
-                  onRestart: () =>
-                      ref.read(navigationSessionProvider.notifier).restart(),
-                ),
-              ],
+              ),
             ),
           )
         else if (isAdmin)

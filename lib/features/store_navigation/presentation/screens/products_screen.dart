@@ -7,7 +7,6 @@ import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/product_sheets.dart';
-import '../widgets/store_segments.dart';
 
 /// Productos de la sucursal elegida. Tocar uno lo señala en el mapa 3D.
 class ProductsScreen extends ConsumerWidget {
@@ -36,7 +35,6 @@ class ProductsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final store = ref.watch(selectedStoreProvider);
     final model = ref.watch(storeModelProvider);
     return Scaffold(
       appBar: AppBar(
@@ -44,24 +42,6 @@ class ProductsScreen extends ConsumerWidget {
           'Productos',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
         ),
-        bottom: ref.watch(lockedStoreProvider) != null
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(56),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: StoreSegments(
-                      store: store,
-                      // El mapa libera su visor 3D antes de cambiar de sucursal.
-                      onChanged: (store) => ref
-                          .read(mapRequestProvider.notifier)
-                          .send(SelectStoreRequest(store)),
-                    ),
-                  ),
-                ),
-              ),
       ),
       body: model.when(
         loading: () => const Center(

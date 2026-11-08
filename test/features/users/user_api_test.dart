@@ -121,5 +121,75 @@ void main() {
       );
       client.close();
     });
+
+    test(
+      'perfil: lee, actualiza solo lo indicado y cambia la contraseña',
+      () async {
+        final requests = <http.Request>[];
+        final client = MockClient((request) async {
+          requests.add(request);
+          expect(request.headers['authorization'], 'Bearer t');
+          if (request.method == 'PUT') return http.Response('', 204);
+          return http.Response(
+            jsonEncode({
+              'data': {
+                'user_id': 7,
+                'name': 'Ana',
+                'last_name': 'Pérez',
+                'email': 'ana@example.com',
+                'role': 'admin',
+                'status': true,
+              },
+            }),
+            200,
+          );
+        });
+        final api = UserApi(
+          client: client,
+          baseUri: Uri.parse('http://localhost:3000/api/'),
+          tokenReader: () async => 't',
+        );
+
+        expect((await api.getProfile()).role, 'admin');
+        await api.updateProfile(lastName: 'Gómez');
+        await api.changePassword(
+          currentPassword: 'a1234567',
+          newPassword: 'b1234567',
+        );
+
+        expect(requests.map((r) => '${r.method} ${r.url.path}'), [
+          'GET /api/users/me',
+          'PATCH /api/users/me',
+          'PUT /api/users/me/password',
+        ]);
+        expect(jsonDecode(requests[1].body), {'last_name': 'Gómez'});
+        client.close();
+      },
+    );
+
+    test('perfil: muestra el mensaje del servidor si falla', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({'error': 'La contraseña actual no es correcta.'}),
+          400,
+        ),
+      );
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      await expectLater(
+        api.changePassword(currentPassword: 'x', newPassword: 'y1234567'),
+        throwsA(
+          isA<UserApiException>().having(
+            (e) => e.message,
+            'message',
+            'La contraseña actual no es correcta.',
+          ),
+        ),
+      );
+      client.close();
+    });
   });
 }

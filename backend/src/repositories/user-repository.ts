@@ -167,3 +167,51 @@ export async function deactivate(userId: number): Promise<boolean> {
   );
   return result.affectedRows > 0;
 }
+
+/** Contraseña guardada del usuario, para comprobar la actual antes de cambiarla. */
+export async function findPasswordHash(userId: number): Promise<string | null> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT password_hash FROM users WHERE user_id = ? LIMIT 1',
+    [userId],
+  );
+  return rows.length > 0 ? (rows[0].password_hash as string) : null;
+}
+
+/**
+ * El propio usuario edita sus datos (cliente o trabajador). Solo toca nombre,
+ * apellido, correo y contraseña; el rol, el estado y la sucursal no cambian.
+ */
+export async function updateOwn(
+  userId: number,
+  input: {
+    name?: string;
+    last_name?: string;
+    email?: string;
+    passwordHash?: string;
+  },
+): Promise<User | null> {
+  const columns: Array<[keyof typeof input, string]> = [
+    ['name', 'name'],
+    ['last_name', 'last_name'],
+    ['email', 'email'],
+    ['passwordHash', 'password_hash'],
+  ];
+  const updates: string[] = [];
+  const values: Array<string | number> = [];
+  for (const [key, column] of columns) {
+    const value = input[key];
+    if (value !== undefined) {
+      updates.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+  if (updates.length > 0) {
+    updates.push('updated_at = CURRENT_TIMESTAMP', 'updated_by_user_id = ?');
+    values.push(userId, userId);
+    await pool.execute(
+      `UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`,
+      values,
+    );
+  }
+  return findById(userId);
+}

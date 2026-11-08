@@ -30,6 +30,14 @@ class AuthSession {
   final String? modelUrl;
 
   bool get isAdmin => role == 'admin';
+
+  /// La misma sesión con otro nombre visible (tras editar el perfil).
+  AuthSession withUsername(String username) => AuthSession(
+    token: token,
+    username: username,
+    role: role,
+    modelUrl: modelUrl,
+  );
   factory AuthSession.fromJson(Map<String, dynamic> json, {String? token}) {
     final accessToken = token ?? json['token'];
     final username = json['username'];

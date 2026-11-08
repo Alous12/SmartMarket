@@ -24,6 +24,7 @@ class InstructionCard extends StatelessWidget {
     required this.subtitle,
     required this.value,
     required this.unit,
+    this.icon = Icons.turn_right,
   });
 
   final String title;
@@ -31,27 +32,30 @@ class InstructionCard extends StatelessWidget {
   final String value;
   final String unit;
 
+  /// Maniobra que viene, como en un navegador.
+  final IconData icon;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: AppTheme.lime,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.turn_right, size: 30, color: AppTheme.ink),
+            child: Icon(icon, size: 28, color: AppTheme.ink),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,11 +66,11 @@ class InstructionCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppTheme.ink,
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   subtitle,
                   maxLines: 1,

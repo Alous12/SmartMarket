@@ -65,18 +65,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            color: AppTheme.lime.withValues(alpha: 0.28),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.storefront_rounded,
-                            color: AppTheme.green,
-                            size: 38,
-                          ),
+                        Image.asset(
+                          'assets/images/smartmarket_logo.jpg',
+                          height: 120,
+                          fit: BoxFit.contain,
+                          semanticLabel: 'Logo de SmartMarket',
                         ),
                         const SizedBox(height: 24),
                         Text(

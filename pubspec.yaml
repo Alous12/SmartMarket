@@ -65,6 +65,7 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
+    - assets/images/smartmarket_logo.jpg
     - Modelos_3D/supermercado_1.glb
     - Modelos_3D/supermercado_2.glb
     - Modelos_3D/personaje.glb

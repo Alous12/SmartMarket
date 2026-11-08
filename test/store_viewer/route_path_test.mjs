@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {createPath, pointAt, remainingPoints} from '../../assets/store_viewer/route_path.js';
+import {createPath, pointAt, remainingPoints, walkedPoints} from '../../assets/store_viewer/route_path.js';
 
 const point = (x, z) => ({x, y: 0, z});
 const path = createPath([point(0, 0), point(10, 0), point(10, 5)]);
@@ -47,4 +47,17 @@ test('un recorrido de un solo punto no falla', () => {
 
   assert.deepEqual(pointAt(single, 2), point(3, 3));
   assert.deepEqual(remainingPoints(single, 0), []);
+});
+
+test('lo recorrido va del inicio a la posición actual', () => {
+  const walked = walkedPoints(path, 12);
+  assert.deepEqual(walked, [point(0, 0), point(10, 0), point(10, 2)]);
+  assert.deepEqual(walkedPoints(path, 0), []);
+  assert.deepEqual(walkedPoints(path, 99).at(-1), point(10, 5));
+});
+
+test('lo recorrido y lo que falta se juntan en la posición actual', () => {
+  const walked = walkedPoints(path, 4);
+  const ahead = remainingPoints(path, 4);
+  assert.deepEqual(walked.at(-1), ahead[0]);
 });

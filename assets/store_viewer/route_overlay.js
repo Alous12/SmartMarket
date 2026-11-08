@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {S, bounds, center, requestRender} from './state.js';
 import {setPose, startFollowing, stopFollowing} from './avatar.js';
-import {createPath, remainingPoints} from './route_path.js';
+import {createPath, remainingPoints, walkedPoints} from './route_path.js';
 
 export function buildNodesOverlay(root) {
   const positions = new Map();
@@ -97,7 +97,10 @@ export function buildRouteOverlay(root) {
   return {group, ribbons, markers, positions, path: null, key: ''};
 }
 
-const ROUTE_COLORS = {pending: 0xf06435, done: 0x2fae6b, outline: 0xffffff, start: 0x1f4fa8};
+const ROUTE_COLORS = {
+  pending: 0xf06435, done: 0x2fae6b, outline: 0xffffff, start: 0x1f4fa8,
+  base: 0x9aa0a6, walked: 0x2fae6b,
+};
 const LINE_HEIGHT = 0.16;
 
 // Cinta plana con ancho real (las líneas WebGL siempre miden 1 px) más
@@ -167,45 +170,73 @@ function clearGroup(group) {
   materials.forEach(material => material.dispose());
 }
 
-/** Dibuja solo lo que falta: el tramo recorrido desaparece bajo los pies. */
-export function trimRoute(distance) {
+const lifted = points => points.map(point => ({...point, y: point.y + LINE_HEIGHT}));
+
+/**
+ * Como en un navegador: la ruta en gris y lo recorrido en verde, sin borrar
+ * nada. Si el camino vuelve por un pasillo ya recorrido, lo que falta se dibuja
+ * encima: siempre se ve por dónde seguir.
+ */
+export function paintRoute(distance) {
   const {ribbons, path} = S.routeOverlay;
   clearGroup(ribbons);
-  const line = remainingPoints(path, distance)
-    .map(point => ({...point, y: point.y + LINE_HEIGHT}));
-  if (line.length > 1) {
-    ribbons.add(buildRibbon(line, 0.62, ROUTE_COLORS.outline, 4));
-    ribbons.add(buildRibbon(line, 0.4, ROUTE_COLORS.pending, 5));
-    ribbons.add(buildRibbon(line, 0.3, ROUTE_COLORS.outline, 6, {arrows: true, arrowsOnly: true}));
+  const full = lifted(path.points);
+  if (full.length > 1) ribbons.add(buildRibbon(full, 0.62, ROUTE_COLORS.outline, 4));
+  const walked = lifted(walkedPoints(path, distance));
+  if (walked.length > 1) ribbons.add(buildRibbon(walked, 0.4, ROUTE_COLORS.walked, 5));
+  const ahead = lifted(remainingPoints(path, distance));
+  if (ahead.length > 1) {
+    ribbons.add(buildRibbon(ahead, 0.4, ROUTE_COLORS.base, 6));
+    // Las flechas solo en lo que falta: indican hacia dónde seguir.
+    ribbons.add(buildRibbon(ahead, 0.3, ROUTE_COLORS.outline, 7, {arrows: true, arrowsOnly: true}));
   }
+  requestRender();
+}
+
+/** Borra la ruta del mapa y deja de seguir al muñeco. */
+export function clearRoute() {
+  const overlay = S.routeOverlay;
+  if (!overlay) return;
+  overlay.group.visible = false;
+  clearGroup(overlay.ribbons);
+  clearGroup(overlay.markers);
+  overlay.path = null;
+  overlay.key = '';
+  stopFollowing();
   requestRender();
 }
 
 export function showRoute(route) {
   if (!S.routeOverlay) return false;
   const overlay = S.routeOverlay;
-  const {group, ribbons, markers, positions} = overlay;
+  const {group, markers, positions} = overlay;
   const nodeIds = Array.isArray(route?.nodeIds) ? route.nodeIds.map(String) : [];
   const points = nodeIds.map(id => positions.get(id));
   if (!nodeIds.length || points.some(point => !point)) {
-    group.visible = false;
-    clearGroup(ribbons);
-    clearGroup(markers);
-    overlay.path = null;
-    overlay.key = '';
-    stopFollowing();
-    requestRender();
+    clearRoute();
     return nodeIds.length === 0;
   }
 
   const key = nodeIds.join('|');
+  if (route.finished) {
+    // Último producto recogido: el muñeco termina de caminar hasta él y recién
+    // entonces la ruta desaparece. Sin un recorrido en curso se borra ya.
+    if (key === overlay.key && S.follow) {
+      S.follow.finishing = true;
+      setPose(route.pose);
+    } else {
+      clearRoute();
+    }
+    return true;
+  }
   if (key === overlay.key && S.follow) {
+    S.follow.finishing = false;
     setPose(route.pose);
   } else {
     overlay.key = key;
     overlay.path = createPath(points);
     startFollowing(overlay.path, route.pose);
-    trimRoute(S.follow.distance);
+    paintRoute(S.follow.distance);
   }
 
   clearGroup(markers);
