@@ -137,6 +137,28 @@ class AssistantApi {
     );
   }
 
+  Future<RecipeAvailability> setIngredientExcluded({
+    required String token,
+    required int requestId,
+    required int itemId,
+    required bool excluded,
+  }) {
+    return _send(
+      () => _client.put(
+        _requestsUri.replace(
+          path: '${_requestsUri.path}/$requestId/ingredients/$itemId/exclusion',
+        ),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'excluded': excluded}),
+      ),
+      parse: (data) => RecipeAvailability.fromJson(_object(data)),
+      fallback: 'No se pudo actualizar el ingrediente.',
+    );
+  }
+
   /// Recetas que el usuario ya pidió, de la más nueva a la más antigua.
   Future<List<RecipeHistoryEntry>> fetchHistory({required String token}) {
     return _send(

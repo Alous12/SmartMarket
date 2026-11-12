@@ -27,6 +27,7 @@ export interface ShoppingListItem {
   unit: string | null;
   /** Última disponibilidad registrada; null si aún no se consultó el inventario. */
   availability: IngredientAvailabilityStatus | null;
+  excluded?: boolean;
 }
 
 export interface ShoppingList {
@@ -60,6 +61,8 @@ export interface IngredientProductMatch extends AvailableIngredientProduct {
   branch_id: number;
   price: number;
   unit_of_measure: string;
+  brand?: string | null;
+  description?: string | null;
 }
 
 export interface ProductChoice {
@@ -75,6 +78,8 @@ export interface ProductOption extends AvailableIngredientProduct {
   branch_name: string;
   price: number;
   unit_of_measure: string;
+  brand?: string | null;
+  description?: string | null;
   is_substitute: boolean;
   selected: boolean;
 }

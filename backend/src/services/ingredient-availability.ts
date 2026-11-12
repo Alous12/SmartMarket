@@ -21,6 +21,8 @@ export interface AvailabilityInput {
   substitutions: IngredientSubstitution[];
   choices?: ProductChoice[];
   preferLowerPrice?: boolean;
+  recommendations?: ProductChoice[];
+  requireRecommendation?: boolean;
   preferences?: Array<{ ingredient_id: number; preference_type: 'PREFER' | 'AVOID' }>;
   preferredProducts?: number[];
   learnedIngredients?: Array<{ ingredient_id: number; preferred_ingredient_id: number }>;
@@ -55,6 +57,8 @@ export function buildIngredientAvailability({
   substitutions,
   choices = [],
   preferLowerPrice = false,
+  recommendations = [],
+  requireRecommendation = false,
   preferences = [],
   preferredProducts = [],
   learnedIngredients = [],
@@ -107,6 +111,8 @@ export function buildIngredientAvailability({
         branch_name: branch.name,
         price: product.price,
         unit_of_measure: product.unit_of_measure,
+        brand: product.brand,
+        description: product.description,
         is_substitute: ingredient.substitute,
         selected: choices.some((choice) => choice.item_id === item.item_id &&
           choice.branch_id === branch.branch_id && choice.product_id === product.product_id),
@@ -127,9 +133,9 @@ export function buildIngredientAvailability({
         Number(b.ingredient_id === learned?.preferred_ingredient_id) -
           Number(a.ingredient_id === learned?.preferred_ingredient_id) ||
         Number(a.is_substitute) - Number(b.is_substitute) ||
-        Number(preferredProducts.includes(b.product_id)) - Number(preferredProducts.includes(a.product_id)) ||
         a.ingredient_id - b.ingredient_id ||
         a.unit_of_measure.localeCompare(b.unit_of_measure) ||
+        Number(preferredProducts.includes(b.product_id)) - Number(preferredProducts.includes(a.product_id)) ||
         (preferLowerPrice ? a.price - b.price : 0) ||
         a.product_id - b.product_id;
     });
@@ -169,20 +175,23 @@ export function buildIngredientAvailability({
     const missing: string[] = [];
     let exact = 0;
     for (const item of items) {
-      const product = stocked(branch.branch_id, item.ingredient_id)[0];
+      if (item.excluded) continue;
       const choice = choices.find((entry) => entry.item_id === item.item_id && entry.branch_id === branch.branch_id);
-      const selected = choice && availabilityItems.find((entry) => entry.item_id === item.item_id)
-        ?.product_options.find((option) => option.branch_id === branch.branch_id && option.product_id === choice.product_id);
+      const options = availabilityItems.find((entry) => entry.item_id === item.item_id)
+        ?.product_options.filter((option) => option.branch_id === branch.branch_id) ?? [];
+      const selected = choice && options.find((option) => option.product_id === choice.product_id);
       if (choice && !selected) {
         missing.push(item.name);
         continue;
       }
-      const chosen = selected ?? product ?? substituteIn(item, branch)?.products[0];
+      const recommendation = recommendations.find((entry) => entry.item_id === item.item_id && entry.branch_id === branch.branch_id);
+      const suggested = recommendation && options.find((option) => option.product_id === recommendation.product_id);
+      const chosen = selected ?? suggested ?? (requireRecommendation ? undefined : options[0]);
       if (!chosen) {
         missing.push(item.name);
         continue;
       }
-      const isSubstitute = selected ? selected.is_substitute : !product;
+      const isSubstitute = chosen.is_substitute;
       if (!isSubstitute) exact++;
       stops.push({
         item_id: item.item_id,
@@ -197,15 +206,14 @@ export function buildIngredientAvailability({
     return { branch, stops, missing, exact };
   };
 
-  // Primero la sucursal con más ingredientes exactos, luego la que más cubre con
-  // alternativas; si empatan va primero la que eligió el usuario.
+  // Primero la sucursal que cubre más ingredientes, luego la de más exactos.
   const routes = branches
     .map(planRoute)
     .filter((plan) => plan.stops.length > 0)
     .sort(
       (a, b) =>
-        b.exact - a.exact ||
         b.stops.length - a.stops.length ||
+        b.exact - a.exact ||
         Number(b.branch.branch_id === branchId) -
           Number(a.branch.branch_id === branchId),
     );

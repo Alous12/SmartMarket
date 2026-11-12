@@ -173,6 +173,22 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
     _replace(AssistantChatEntry(request: request, availability: availability));
   }
 
+  Future<void> setIngredientExcluded(
+    AssistantRequest request,
+    int itemId,
+    bool excluded,
+  ) async {
+    final token = await _token();
+    final availability = await _api.setIngredientExcluded(
+      token: token,
+      requestId: request.id,
+      itemId: itemId,
+      excluded: excluded,
+    );
+    if (token != _sessionToken) return;
+    _replace(AssistantChatEntry(request: request, availability: availability));
+  }
+
   /// Trae una receta del historial al chat sin consultar a la IA: usa su lista
   /// guardada y la compara con el inventario actual.
   Future<RecipeAvailability> repeat(int requestId) async {

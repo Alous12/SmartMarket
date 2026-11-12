@@ -63,6 +63,7 @@ class IngredientAvailability {
     this.substitutes = const [],
     this.productOptions = const [],
     this.invalidSelectedBranches = const [],
+    this.excluded = false,
   });
 
   final int itemId;
@@ -78,6 +79,7 @@ class IngredientAvailability {
   final List<BranchProduct> substitutes;
   final List<IngredientProductOption> productOptions;
   final List<int> invalidSelectedBranches;
+  final bool excluded;
 
   /// No hay producto de este ingrediente en ningún supermercado.
   bool get isNowhere => status != IngredientStatus.available && !inOtherBranch;
@@ -108,6 +110,7 @@ class IngredientAvailability {
       ],
       invalidSelectedBranches:
           (json['invalid_selected_branches'] as List? ?? const []).cast<int>(),
+      excluded: json['excluded'] as bool? ?? false,
     );
   }
 }

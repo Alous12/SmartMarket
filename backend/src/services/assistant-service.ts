@@ -6,10 +6,12 @@ import type {
   RecipeHistoryEntry,
 } from '../models/assistant-request.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
+import * as choiceRepository from '../repositories/assistant-choice-repository.js';
 import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
 import { AiServiceError } from './ai/ai-error.js';
+import { recommendProducts } from './ai/product-recommendations.js';
 import { availableModels, generateJson, resolveModel, type AiModel } from './ai/ai-provider.js';
 import {
   buildRecipeInstruction,
@@ -24,6 +26,7 @@ import {
 import { parseAssistantRequest } from './assistant-prompt.js';
 import { getIdentity } from './auth-service.js';
 import { generateIngredientList } from './ingredient-list-service.js';
+import { buildIngredientAvailability } from './ingredient-availability.js';
 import { latestPerRecipe } from './recipe-history.js';
 
 /**
@@ -155,7 +158,25 @@ export async function processRequest(request: AssistantRequest, model: AiModel):
     // La receta identificada queda disponible para extraer sus ingredientes.
     recipeName = analysis.recipeName;
     await save('PROCESSING', recipeName, null);
-    await generateIngredientList(request, analysis.ingredients);
+    const list = await generateIngredientList(request, analysis.ingredients);
+    await choiceRepository.saveIntents(request.user_id, analysis.intents ?? []);
+    const ingredientIds = list.items.flatMap((item) => item.ingredient_id === null ? [] : [item.ingredient_id]);
+    const substitutions = await ingredientRepository.findSubstitutions(ingredientIds);
+    const [products, branches, intents, history, profile] = await Promise.all([
+      ingredientRepository.findAvailableProducts([...ingredientIds, ...substitutions.map((item) => item.substitute_ingredient_id)]),
+      branchRepository.findActive(),
+      choiceRepository.findIntents(request.user_id),
+      choiceRepository.findSelectionHistory(request.user_id),
+      choiceRepository.findProfile(request.user_id),
+    ]);
+    const candidates = buildIngredientAvailability({
+      items: list.items, branchId: request.branch_id, branches, products, substitutions,
+    });
+    const recommendations = await recommendProducts(
+      model, request.prompt, intents, candidates.items, history, profile.preferences,
+    );
+    await choiceRepository.saveRecommendations(recommendations);
+    await assistantRequestRepository.markRecommendationsReady(request.request_id);
     await save('COMPLETED', recipeName, null);
   } catch (error) {
     console.error(`No se pudo procesar la petición ${request.request_id}:`, error);

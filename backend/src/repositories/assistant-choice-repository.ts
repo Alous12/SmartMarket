@@ -30,7 +30,7 @@ export async function findProfile(userId: number): Promise<{
   learnedIngredients: Array<{ ingredient_id: number; preferred_ingredient_id: number }>;
 }> {
   const [preferences] = await pool.execute<RowDataPacket[]>(
-    'SELECT ingredient_id, preference_type FROM user_preferences WHERE user_id = ?',
+    'SELECT ingredient_id, preference_type FROM user_preferences WHERE user_id = ? AND ingredient_id IS NOT NULL',
     [userId],
   );
   const [signals] = await pool.execute<RowDataPacket[]>(
@@ -93,6 +93,77 @@ export async function findProfile(userId: number): Promise<{
   };
 }
 
+export async function saveIntents(userId: number, intents: string[]): Promise<void> {
+  for (const intent of intents) {
+    const normalized = intent.normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    await pool.execute(
+      `INSERT INTO user_preferences (user_id, ingredient_id, preference_type, intent)
+       VALUES (?, NULL, 'PREFER', ?) ON DUPLICATE KEY UPDATE preference_id = preference_id`,
+      [userId, normalized],
+    );
+  }
+}
+
+export async function findIntents(userId: number): Promise<string[]> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT intent FROM user_preferences WHERE user_id = ? AND intent IS NOT NULL ORDER BY preference_id DESC LIMIT 50',
+    [userId],
+  );
+  return rows.map((row) => String(row.intent));
+}
+
+export interface SelectionHistoryEntry {
+  ingredient_id: number;
+  product_id: number;
+  product_name: string;
+  price: number;
+  unit_of_measure: string;
+  chose_cheapest: boolean | null;
+}
+
+export async function findSelectionHistory(userId: number): Promise<SelectionHistoryEntry[]> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT event.ingredient_id, event.product_id, product.name AS product_name,
+            event.price, product.unit_of_measure, event.chose_cheapest
+     FROM assistant_choice_events event
+     JOIN products product ON product.product_id = event.product_id
+     JOIN (
+       SELECT MAX(event_id) AS event_id FROM assistant_choice_events
+       WHERE user_id = ? AND item_id IS NOT NULL GROUP BY item_id
+     ) latest ON latest.event_id = event.event_id
+     ORDER BY event.event_id DESC LIMIT 10`,
+    [userId],
+  );
+  return rows.map((row) => ({
+    ingredient_id: Number(row.ingredient_id),
+    product_id: Number(row.product_id),
+    product_name: String(row.product_name),
+    price: Number(row.price),
+    unit_of_measure: String(row.unit_of_measure),
+    chose_cheapest: row.chose_cheapest === null ? null : Boolean(row.chose_cheapest),
+  }));
+}
+
+export async function findRecommendations(listId: number): Promise<ProductChoice[]> {
+  const [rows] = await pool.execute<ChoiceRow[]>(
+    `SELECT r.item_id, r.branch_id, r.product_id
+     FROM assistant_recommendations r
+     JOIN shopping_list_items item ON item.item_id = r.item_id WHERE item.list_id = ?`,
+    [listId],
+  );
+  return rows.map(({ item_id, branch_id, product_id }) => ({ item_id, branch_id, product_id }));
+}
+
+export async function saveRecommendations(choices: ProductChoice[]): Promise<void> {
+  if (!choices.length) return;
+  await pool.query(
+    `INSERT INTO assistant_recommendations (item_id, branch_id, product_id) VALUES ?
+     ON DUPLICATE KEY UPDATE product_id = VALUES(product_id)`,
+    [choices.map((choice) => [choice.item_id, choice.branch_id, choice.product_id])],
+  );
+}
+
 export async function saveChoice(input: {
   userId: number;
   requestId: number;
@@ -146,6 +217,7 @@ export async function saveChoice(input: {
        VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE product_id = VALUES(product_id), selected_at = CURRENT_TIMESTAMP`,
       [input.itemId, input.branchId, input.productId],
     );
+    await connection.execute('UPDATE shopping_list_items SET excluded = FALSE WHERE item_id = ?', [input.itemId]);
     const comparable = candidates.filter((candidate) =>
       candidate.ingredient_id === chosen.ingredient_id && candidate.unit_of_measure === chosen.unit_of_measure,
     );
@@ -164,5 +236,34 @@ export async function saveChoice(input: {
     throw error;
   } finally {
     connection.release();
+  }
+}
+
+export async function setExcluded(input: {
+    userId: number;
+    requestId: number;
+    itemId: number;
+    excluded: boolean;
+  }): Promise<void> {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [items] = await connection.execute<RowDataPacket[]>(
+        `SELECT item.item_id FROM shopping_list_items item
+         JOIN shopping_lists list ON list.list_id = item.list_id
+         WHERE item.item_id = ? AND list.request_id = ? AND list.user_id = ? FOR UPDATE`,
+        [input.itemId, input.requestId, input.userId],
+      );
+      if (!items.length) throw new HttpError(404, 'Ingrediente no encontrado.');
+      await connection.execute('UPDATE shopping_list_items SET excluded = ? WHERE item_id = ?', [input.excluded, input.itemId]);
+      if (input.excluded) {
+        await connection.execute('DELETE FROM assistant_product_choices WHERE item_id = ?', [input.itemId]);
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
   }
 }

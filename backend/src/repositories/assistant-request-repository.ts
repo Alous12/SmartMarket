@@ -19,6 +19,7 @@ const columns = `
   status,
   recipe_name,
   response_message,
+  recommendations_ready,
   created_at,
   updated_at
 `;
@@ -40,6 +41,7 @@ export async function findById(
     status: row.status,
     recipe_name: row.recipe_name,
     response_message: row.response_message,
+    recommendations_ready: Boolean(row.recommendations_ready),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -101,6 +103,10 @@ export async function updateStatus(
     [status, requestId],
   );
   return findById(requestId);
+}
+
+export async function markRecommendationsReady(requestId: number): Promise<void> {
+  await pool.execute('UPDATE assistant_requests SET recommendations_ready = TRUE WHERE request_id = ?', [requestId]);
 }
 
 /**

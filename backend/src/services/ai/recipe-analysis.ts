@@ -16,7 +16,7 @@ export const defaultRejectionMessage =
 export const allowedUnits = ['g', 'kg', 'ml', 'l', 'u', 'cda', 'cdta', 'taza'] as const;
 
 export type RecipeAnalysis =
-  | { isRecipe: true; recipeName: string; ingredients: IdentifiedIngredient[] }
+  | { isRecipe: true; recipeName: string; ingredients: IdentifiedIngredient[]; intents?: string[] }
   | { isRecipe: false; message: string };
 
 /**
@@ -36,6 +36,8 @@ export function buildRecipeInstruction(catalogNames: string[]): string {
     '4. Calcula las cantidades para las porciones que indique el usuario; si no indica, para 4 porciones.',
     `5. Usa solo estas unidades: ${allowedUnits.join(', ')} (u = unidades). Si un ingrediente va "al gusto", usa quantity = null y unit = null.`,
     '6. Escribe cada ingrediente una sola vez, en español, en singular y sin marcas comerciales.',
+    'Respeta las características y restricciones culinarias que el usuario pida para el plato. No garantices atributos de productos.',
+    'Extrae en preferences una lista de preferencias o restricciones explícitas de compra o alimentación, expresadas brevemente en español. Si no existen, devuelve []. No inventes preferencias.',
     '7. Si un ingrediente corresponde a uno de este catálogo, escribe su nombre exactamente igual:',
     catalogNames.join(', '),
   ].join('\n');
@@ -60,8 +62,9 @@ export const recipeResponseSchema = {
       },
     },
     message: { type: 'STRING', nullable: true },
+    preferences: { type: 'ARRAY', items: { type: 'STRING' } },
   },
-  required: ['is_recipe', 'recipe_name', 'ingredients', 'message'],
+  required: ['is_recipe', 'recipe_name', 'ingredients', 'message', 'preferences'],
 } as const;
 
 export function buildCompactRecipeInstruction(catalogNames: string[]): string {
@@ -71,6 +74,8 @@ export function buildCompactRecipeInstruction(catalogNames: string[]): string {
     'Si solicita un plato o receta, devuelve r=true, n con el nombre del plato y en i todos los ingredientes necesarios. m debe ser null.',
     `Cada ingrediente usa n para el nombre en español, singular y sin marca; q para cantidad numérica positiva y u para unidad (${allowedUnits.join(', ')}). Para "al gusto", q y u son null.`,
     'Ajusta las cantidades a las porciones indicadas o, si no indica, para 4 personas. No repitas ingredientes.',
+    'Respeta las características y restricciones culinarias solicitadas para el plato; no garantices atributos de productos.',
+    'p es una lista de preferencias o restricciones explícitas del usuario, en español; si no hay, []. No inventes preferencias.',
     'Si no solicita una receta, devuelve r=false, n=null, i=[] y m con una explicación breve en español.',
     'Cuando un ingrediente coincida con el catálogo, escribe su nombre exactamente como aparece:',
     catalogNames.join(', '),
@@ -95,8 +100,9 @@ export const compactRecipeResponseSchema = {
       },
     },
     m: { type: 'STRING', nullable: true },
+    p: { type: 'ARRAY', items: { type: 'STRING' } },
   },
-  required: ['r', 'n', 'i', 'm'],
+  required: ['r', 'n', 'i', 'm', 'p'],
 } as const;
 
 export function parseCompactRecipeAnalysis(output: unknown): RecipeAnalysis {
@@ -105,6 +111,7 @@ export function parseCompactRecipeAnalysis(output: unknown): RecipeAnalysis {
     is_recipe: output.r,
     recipe_name: output.n,
     message: output.m,
+    preferences: output.p,
     ingredients: Array.isArray(output.i)
       ? output.i.map((entry) => isRecord(entry)
         ? { name: entry.n, quantity: entry.q, unit: entry.u }
@@ -130,6 +137,11 @@ function cleanText(value: unknown, maxLength: number): string | null {
 export function parseRecipeAnalysis(output: unknown): RecipeAnalysis {
   if (!isRecord(output) || typeof output.is_recipe !== 'boolean') {
     throw new AiServiceError('La IA devolvió una respuesta sin is_recipe.');
+  }
+  if (output.preferences !== undefined &&
+      (!Array.isArray(output.preferences) || output.preferences.length > 10 ||
+      output.preferences.some((value) => typeof value !== 'string' || value.trim().length === 0 || value.trim().length > 191))) {
+    throw new AiServiceError('La IA devolvió preferencias inválidas.');
   }
 
   if (!output.is_recipe) {
@@ -167,6 +179,9 @@ export function parseRecipeAnalysis(output: unknown): RecipeAnalysis {
       isRecipe: true,
       recipeName,
       ingredients: parseIdentifiedIngredients({ ingredients }),
+      ...(Array.isArray(output.preferences) ? {
+        intents: output.preferences.map((value: string) => value.trim().replace(/\s+/g, ' ')),
+      } : {}),
     };
   } catch (error) {
     throw new AiServiceError(

@@ -31,6 +31,7 @@ interface ShoppingListItemRow extends RowDataPacket {
   quantity: string | null;
   unit: string | null;
   availability: IngredientAvailabilityStatus | null;
+  excluded: number;
 }
 
 function toItem(row: ShoppingListItemRow): ShoppingListItem {
@@ -43,6 +44,7 @@ function toItem(row: ShoppingListItemRow): ShoppingListItem {
     quantity: row.quantity === null ? null : Number(row.quantity),
     unit: row.unit,
     availability: row.availability,
+    excluded: Boolean(row.excluded),
   };
 }
 
@@ -67,6 +69,7 @@ export async function findByRequest(
             item.quantity,
             item.unit,
             item.availability
+            , item.excluded
      FROM shopping_list_items item
      LEFT JOIN ingredients ingredient
        ON ingredient.ingredient_id = item.ingredient_id
@@ -133,6 +136,10 @@ export async function saveForRequest(input: {
     let listId: number;
     if (existing.length > 0) {
       listId = existing[0].list_id as number;
+      await connection.execute(
+        'UPDATE assistant_requests SET recommendations_ready = FALSE WHERE request_id = ?',
+        [input.requestId],
+      );
       await connection.execute('DELETE FROM shopping_list_items WHERE list_id = ?', [
         listId,
       ]);

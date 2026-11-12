@@ -115,6 +115,27 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     }
   }
 
+  Future<void> _setExcluded(
+    AssistantChatEntry entry,
+    int itemId,
+    bool excluded,
+  ) async {
+    if (_selectingProduct) return;
+    setState(() => _selectingProduct = true);
+    try {
+      await ref
+          .read(assistantChatProvider.notifier)
+          .setIngredientExcluded(entry.request, itemId, excluded);
+    } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
+      await _retryAvailability(entry);
+    } on AuthApiException catch (error) {
+      if (mounted) _showError(error.message);
+    } finally {
+      if (mounted) setState(() => _selectingProduct = false);
+    }
+  }
+
   void _showRoute(ShoppingRoute route) {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -204,6 +225,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                               selectingProduct: _selectingProduct,
                               onSelectProduct: (itemId, option) =>
                                   _selectProduct(entry, itemId, option),
+                              onExcludeIngredient: (itemId, excluded) =>
+                                  _setExcluded(entry, itemId, excluded),
                             ),
                           ],
                         );

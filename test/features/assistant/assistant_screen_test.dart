@@ -251,6 +251,71 @@ Future<void> _askLasagna(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('permite excluir y restaurar un producto sugerido', (
+    tester,
+  ) async {
+    var excluded = false;
+    Map<String, Object?> availability() => {
+      'branch_id': 2,
+      'items': [
+        {
+          ..._item(1, 'Masa', 'AVAILABLE'),
+          'excluded': excluded,
+          'product_options': [
+            {
+              'product_id': 10,
+              'branch_id': 2,
+              'branch_name': 'Piloto',
+              'name': 'Masa',
+              'price': 10,
+              'unit_of_measure': 'u',
+              'ingredient_name': 'Masa',
+              'is_substitute': false,
+              'selected': false,
+            },
+          ],
+        },
+      ],
+      'routes': excluded
+          ? []
+          : [
+              _route(2, 'Piloto', [_stop(1, 'Masa')]),
+            ],
+    };
+    await _pumpAssistant(
+      tester,
+      handler: (request) async {
+        if (request.url.path.endsWith('/models')) {
+          return http.Response('{"data":[]}', 200);
+        }
+        if (request.method == 'POST') return _created('lasaña');
+        if (request.url.path.endsWith('/exclusion')) {
+          excluded =
+              (jsonDecode(request.body) as Map<String, dynamic>)['excluded']
+                  as bool;
+          return _json(availability(), 200);
+        }
+        if (request.url.path.endsWith('/availability')) {
+          return _json(availability(), 200);
+        }
+        return _json({'request_id': 1, 'prompt': 'lasaña', ..._lasagna}, 200);
+      },
+    );
+    await _askLasagna(tester);
+    await tester.tap(find.text('Revisar productos'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
+    expect(excluded, isTrue);
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(find.text('Excluido de la compra'), findsOneWidget);
+    expect(find.text('Mostrar ruta'), findsNothing);
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
+    expect(find.text('Mostrar ruta'), findsOneWidget);
+  });
+
   group('HU-10 — Mostrar campo de texto', () {
     testWidgets(
       'CC1: muestra un campo de texto para introducir una solicitud',
