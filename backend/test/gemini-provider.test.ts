@@ -117,7 +117,8 @@ test('gives up after the last retry if the model stays saturated', async () => {
 
   await assert.rejects(
     generateJson(input, fakeFetch, [0, 0]),
-    (error: unknown) => error instanceof AiServiceError && /503/.test(error.message),
+    (error: unknown) => error instanceof AiServiceError && /503/.test(error.message) &&
+      /saturado/.test(error.userMessage),
   );
   assert.equal(calls, 3);
 });
@@ -155,5 +156,14 @@ test('fails when Gemini cannot be reached', async () => {
       throw new TypeError('fetch failed');
     }),
     (error: unknown) => error instanceof AiServiceError && /conectar/.test(error.message),
+  );
+});
+
+test('reports Gemini timeouts separately from connection failures', async () => {
+  await assert.rejects(
+    generateJson(input, async () => {
+      throw new DOMException('timeout', 'TimeoutError');
+    }),
+    (error: unknown) => error instanceof AiServiceError && /tardó demasiado/.test(error.userMessage),
   );
 });

@@ -39,7 +39,13 @@ test('real MySQL validates ownership, stock and idempotent selections', {
     );
     userId = user.insertId;
     await saveIntents(userId, ['Productos económicos', '  productos   económicos  ', 'Sin carne']);
-    assert.deepEqual(new Set(await findIntents(userId)), new Set(['productos económicos', 'sin carne']));
+    assert.deepEqual((await findIntents(userId)).sort(), ['productos económicos', 'sin carne']);
+    await saveIntents(userId, ['SIN CARNE', 'Productos económicos']);
+    const [intentCount] = await pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) AS total FROM user_preferences WHERE user_id = ? AND intent IS NOT NULL',
+      [userId],
+    );
+    assert.equal(Number(intentCount[0].total), 2);
     const [request] = await pool.execute<ResultSetHeader>(
       `INSERT INTO assistant_requests (user_id, branch_id, prompt, status)
        VALUES (?, ?, 'prueba temporal', 'COMPLETED')`,

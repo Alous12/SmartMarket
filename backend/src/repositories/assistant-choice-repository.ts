@@ -94,13 +94,16 @@ export async function findProfile(userId: number): Promise<{
 }
 
 export async function saveIntents(userId: number, intents: string[]): Promise<void> {
-  for (const intent of intents) {
-    const normalized = intent.normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ').trim();
-    if (!normalized) continue;
+  const normalizedIntents = new Set(
+    intents
+      .map((intent) => intent.normalize('NFKC').toLocaleLowerCase('es').replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  );
+  for (const intent of normalizedIntents) {
     await pool.execute(
       `INSERT INTO user_preferences (user_id, ingredient_id, preference_type, intent)
        VALUES (?, NULL, 'PREFER', ?) ON DUPLICATE KEY UPDATE preference_id = preference_id`,
-      [userId, normalized],
+      [userId, intent],
     );
   }
 }
