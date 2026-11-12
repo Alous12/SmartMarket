@@ -6,6 +6,7 @@ import type {
   ShoppingList,
 } from '../models/shopping-list.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
+import * as choiceRepository from '../repositories/assistant-choice-repository.js';
 import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
@@ -117,12 +118,14 @@ export async function getIngredientAvailability(
     ),
   ];
   const substitutions = await ingredientRepository.findSubstitutions(ingredientIds);
-  const [products, branches] = await Promise.all([
+  const [products, branches, choices, profile] = await Promise.all([
     ingredientRepository.findAvailableProducts([
       ...ingredientIds,
       ...substitutions.map((substitution) => substitution.substitute_ingredient_id),
     ]),
     branchRepository.findActive(),
+    choiceRepository.findChoices(list.list_id),
+    choiceRepository.findProfile(identity.userId),
   ]);
 
   const { items, routes } = buildIngredientAvailability({
@@ -131,6 +134,8 @@ export async function getIngredientAvailability(
     branches,
     products,
     substitutions,
+    choices,
+    ...profile,
   });
   await shoppingListRepository.saveAvailability(items);
 
@@ -141,4 +146,25 @@ export async function getIngredientAvailability(
     items,
     routes,
   };
+}
+
+export async function selectProduct(
+  authorization: string | undefined,
+  requestId: number,
+  itemId: number,
+  body: unknown,
+): Promise<IngredientAvailabilityList> {
+  const identity = getIdentity(authorization);
+  if (typeof body !== 'object' || body === null || Array.isArray(body) ||
+      !('product_id' in body) || !('branch_id' in body) ||
+      Object.keys(body).some((key) => key !== 'product_id' && key !== 'branch_id') ||
+      typeof body.product_id !== 'number' || !Number.isSafeInteger(body.product_id) || body.product_id <= 0 ||
+      typeof body.branch_id !== 'number' || !Number.isSafeInteger(body.branch_id) || body.branch_id <= 0) {
+    throw new HttpError(400, 'Indica un producto y una sucursal válidos.');
+  }
+  await choiceRepository.saveChoice({
+    userId: identity.userId, requestId, itemId,
+    productId: body.product_id, branchId: body.branch_id,
+  });
+  return getIngredientAvailability(authorization, requestId);
 }

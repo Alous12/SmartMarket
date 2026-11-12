@@ -20,6 +20,8 @@ interface AvailableIngredientProductRow extends RowDataPacket {
   stock_quantity: string;
   section_name: string;
   shelf: string | null;
+  price: string;
+  unit_of_measure: string;
 }
 
 interface IngredientSubstitutionRow extends RowDataPacket, IngredientSubstitution {}
@@ -59,7 +61,8 @@ export async function findAvailableProducts(
 
   const [rows] = await pool.query<AvailableIngredientProductRow[]>(
     `SELECT pi.ingredient_id, i.branch_id, p.product_id, p.sku, p.name,
-            i.stock_quantity, s.name AS section_name, pl.shelf
+            i.stock_quantity, s.name AS section_name, pl.shelf,
+            p.price, p.unit_of_measure
      FROM product_ingredients pi
      JOIN products p ON p.product_id = pi.product_id AND p.status = TRUE
      JOIN inventory i ON i.product_id = p.product_id AND i.stock_quantity > 0
@@ -80,6 +83,8 @@ export async function findAvailableProducts(
     stock_quantity: Number(row.stock_quantity),
     section_name: row.section_name,
     shelf: row.shelf,
+    price: Number(row.price),
+    unit_of_measure: row.unit_of_measure,
   }));
 }
 

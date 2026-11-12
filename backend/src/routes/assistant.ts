@@ -6,11 +6,14 @@ import {
   getIngredients,
   getRequest,
   listRecipeHistory,
+  listModels,
   saveIngredients,
+  selectProduct,
 } from '../controllers/assistant-controller.js';
 
 export const assistantRouter = Router();
 
+assistantRouter.get('/models', listModels);
 assistantRouter.post('/requests', createRequest);
 assistantRouter.get('/requests', listRecipeHistory);
 assistantRouter.get('/requests/:requestId', getRequest);
@@ -20,3 +23,4 @@ assistantRouter.get(
   '/requests/:requestId/ingredients/availability',
   getIngredientAvailability,
 );
+assistantRouter.put('/requests/:requestId/ingredients/:itemId/product', selectProduct);

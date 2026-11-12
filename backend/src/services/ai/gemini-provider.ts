@@ -1,4 +1,5 @@
 import { AiServiceError } from './ai-error.js';
+import type { GenerateJsonInput } from './ai-provider.js';
 
 const apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
 export const defaultGeminiModel = 'gemini-3.5-flash-lite';
@@ -8,12 +9,6 @@ const retryDelaysMs = [1_000, 2_000];
 
 const notConfiguredMessage =
   'El asistente no está disponible en este momento. Avísale al administrador.';
-
-export interface GenerateJsonInput {
-  systemInstruction: string;
-  userText: string;
-  responseSchema: object;
-}
 
 interface GeminiResponse {
   promptFeedback?: { blockReason?: string };

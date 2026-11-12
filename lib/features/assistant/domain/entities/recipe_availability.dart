@@ -1,5 +1,42 @@
 enum IngredientStatus { available, unavailable, notInCatalog }
 
+class IngredientProductOption {
+  const IngredientProductOption({
+    required this.productId,
+    required this.branchId,
+    required this.branchName,
+    required this.name,
+    required this.price,
+    required this.unit,
+    required this.ingredientName,
+    required this.isSubstitute,
+    required this.selected,
+  });
+
+  final int productId;
+  final int branchId;
+  final String branchName;
+  final String name;
+  final double price;
+  final String unit;
+  final String ingredientName;
+  final bool isSubstitute;
+  final bool selected;
+
+  factory IngredientProductOption.fromJson(Map<String, dynamic> json) =>
+      IngredientProductOption(
+        productId: json['product_id'] as int,
+        branchId: json['branch_id'] as int,
+        branchName: json['branch_name'] as String,
+        name: json['name'] as String,
+        price: (json['price'] as num).toDouble(),
+        unit: json['unit_of_measure'] as String,
+        ingredientName: json['ingredient_name'] as String,
+        isSubstitute: json['is_substitute'] as bool,
+        selected: json['selected'] as bool,
+      );
+}
+
 /// Producto de un ingrediente en una sucursal.
 class BranchProduct {
   const BranchProduct({required this.branchName, required this.productName});
@@ -24,6 +61,8 @@ class IngredientAvailability {
     required this.status,
     this.inOtherBranch = false,
     this.substitutes = const [],
+    this.productOptions = const [],
+    this.invalidSelectedBranches = const [],
   });
 
   final int itemId;
@@ -37,10 +76,11 @@ class IngredientAvailability {
 
   /// Productos que lo reemplazan en las sucursales donde falta.
   final List<BranchProduct> substitutes;
+  final List<IngredientProductOption> productOptions;
+  final List<int> invalidSelectedBranches;
 
   /// No hay producto de este ingrediente en ningún supermercado.
-  bool get isNowhere =>
-      status != IngredientStatus.available && !inOtherBranch;
+  bool get isNowhere => status != IngredientStatus.available && !inOtherBranch;
 
   static IngredientStatus _status(String value) => switch (value) {
     'AVAILABLE' => IngredientStatus.available,
@@ -60,6 +100,14 @@ class IngredientAvailability {
             in (json['substitutes'] as List).cast<Map<String, dynamic>>())
           BranchProduct.fromJson(branch),
       ],
+      productOptions: [
+        for (final option
+            in (json['product_options'] as List? ?? const [])
+                .cast<Map<String, dynamic>>())
+          IngredientProductOption.fromJson(option),
+      ],
+      invalidSelectedBranches:
+          (json['invalid_selected_branches'] as List? ?? const []).cast<int>(),
     );
   }
 }
@@ -181,9 +229,13 @@ class RecipeAvailability {
   String summaryFor(int? currentBranchId) {
     if (routes.isEmpty) return 'Ningún supermercado tiene estos ingredientes.';
     if (_obtainable == 0) return 'Puedes comprar estos reemplazos.';
-    final products = nowhere.isEmpty ? 'todos los productos' : 'los demás productos';
+    final products = nowhere.isEmpty
+        ? 'todos los productos'
+        : 'los demás productos';
     final full = _fullRoutes;
-    if (full.isEmpty) return 'Ningún supermercado tiene todo. Elige dónde comprar.';
+    if (full.isEmpty) {
+      return 'Ningún supermercado tiene todo. Elige dónde comprar.';
+    }
     if (full.length > 1) {
       return 'Existen $products en ambos supermercados. Elige dónde comprar.';
     }

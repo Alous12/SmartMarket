@@ -14,11 +14,13 @@ class AssistantChatEntry {
     required this.request,
     this.availability,
     this.availabilityFailed = false,
+    this.pollingFailed = false,
   });
 
   final AssistantRequest request;
   final RecipeAvailability? availability;
   final bool availabilityFailed;
+  final bool pollingFailed;
 }
 
 class AssistantChatState {
@@ -39,9 +41,6 @@ final assistantChatProvider =
     );
 
 class AssistantChatNotifier extends Notifier<AssistantChatState> {
-  /// Consultas máximas mientras la IA procesa (unos 90 s con el intervalo por defecto).
-  static const _maxPolls = 45;
-
   String? _sessionToken;
 
   AssistantApi get _api => ref.read(assistantApiProvider);
@@ -57,14 +56,16 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
   Future<String> _token() async {
     final session = await ref.read(authControllerProvider.future);
     if (session == null) {
-      throw const AssistantApiException('Inicia sesión para enviar tu petición.');
+      throw const AssistantApiException(
+        'Inicia sesión para enviar tu petición.',
+      );
     }
     return session.token;
   }
 
   /// Envía la petición y sigue su avance en segundo plano. Lanza una excepción
   /// si no se pudo enviar; devuelve false si ya hay otra en curso.
-  Future<bool> send(String prompt) async {
+  Future<bool> send(String prompt, {String? modelId}) async {
     if (state.sending || prompt.trim().isEmpty) return false;
     _setSending(true);
     try {
@@ -77,9 +78,13 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
         token: token,
         prompt: prompt,
         branchId: branchId,
+        modelId: modelId,
       );
       state = AssistantChatState(
-        entries: [...state.entries, AssistantChatEntry(request: request)],
+        entries: [
+          ...state.entries,
+          AssistantChatEntry(request: request),
+        ],
         sending: true,
       );
       unawaited(_follow(token, request));
@@ -94,35 +99,39 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
   Future<void> _follow(String token, AssistantRequest request) async {
     final interval = ref.read(assistantPollIntervalProvider);
     var current = request;
-    for (var poll = 0; poll < _maxPolls && !current.isFinished; poll++) {
+    var consecutiveFailures = 0;
+    while (!current.isFinished) {
       await Future<void>.delayed(interval);
       if (token != _sessionToken) return;
       try {
         current = await _api.fetchRequest(token: token, requestId: request.id);
       } on AssistantApiException {
-        // Un fallo puntual de red no detiene la espera.
+        consecutiveFailures++;
+        if (consecutiveFailures >= 5) {
+          if (token == _sessionToken) {
+            _replace(AssistantChatEntry(request: current, pollingFailed: true));
+            _setSending(false);
+          }
+          return;
+        }
         continue;
       }
+      consecutiveFailures = 0;
       if (token != _sessionToken) return;
       _replace(AssistantChatEntry(request: current));
-    }
-    if (!current.isFinished) {
-      _replace(
-        AssistantChatEntry(
-          request: AssistantRequest(
-            id: current.id,
-            prompt: current.prompt,
-            status: AssistantRequestStatus.failed,
-            message:
-                'El asistente está tardando más de lo normal. Inténtalo de nuevo en unos minutos.',
-          ),
-        ),
-      );
     }
     if (current.status == AssistantRequestStatus.completed) {
       await _loadAvailability(token, current);
     }
     if (token == _sessionToken) _setSending(false);
+  }
+
+  Future<void> retryPolling(AssistantRequest request) async {
+    if (state.sending) return;
+    final token = await _token();
+    _replace(AssistantChatEntry(request: request));
+    _setSending(true);
+    unawaited(_follow(token, request));
   }
 
   /// Compara la lista de ingredientes con el inventario de los supermercados.
@@ -134,7 +143,9 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
         requestId: request.id,
       );
       if (token != _sessionToken) return;
-      _replace(AssistantChatEntry(request: request, availability: availability));
+      _replace(
+        AssistantChatEntry(request: request, availability: availability),
+      );
     } on AssistantApiException {
       if (token != _sessionToken) return;
       _replace(AssistantChatEntry(request: request, availabilityFailed: true));
@@ -143,6 +154,23 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
 
   Future<void> retryAvailability(AssistantRequest request) async {
     await _loadAvailability(await _token(), request);
+  }
+
+  Future<void> selectProduct(
+    AssistantRequest request,
+    int itemId,
+    IngredientProductOption option,
+  ) async {
+    final token = await _token();
+    final availability = await _api.selectProduct(
+      token: token,
+      requestId: request.id,
+      itemId: itemId,
+      branchId: option.branchId,
+      productId: option.productId,
+    );
+    if (token != _sessionToken) return;
+    _replace(AssistantChatEntry(request: request, availability: availability));
   }
 
   /// Trae una receta del historial al chat sin consultar a la IA: usa su lista

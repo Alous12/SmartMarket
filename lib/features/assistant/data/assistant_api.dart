@@ -16,6 +16,16 @@ class AssistantApiException implements Exception {
   String toString() => message;
 }
 
+class AssistantModel {
+  const AssistantModel({required this.id, required this.label});
+
+  final String id;
+  final String label;
+
+  factory AssistantModel.fromJson(Map<String, dynamic> json) =>
+      AssistantModel(id: json['id'] as String, label: json['label'] as String);
+}
+
 class AssistantApi {
   AssistantApi({required http.Client client, required Uri baseUri})
     : this._internal(client, baseUri);
@@ -29,12 +39,28 @@ class AssistantApi {
   final Uri _requestsUri;
   static const _timeout = Duration(seconds: 10);
 
+  Future<List<AssistantModel>> fetchModels({required String token}) {
+    final uri = _requestsUri.replace(
+      path:
+          '${_requestsUri.path.substring(0, _requestsUri.path.lastIndexOf('/'))}/models',
+    );
+    return _send(
+      () => _client.get(uri, headers: {'Authorization': 'Bearer $token'}),
+      parse: (data) => [
+        for (final item in (data as List).cast<Map<String, dynamic>>())
+          AssistantModel.fromJson(item),
+      ],
+      fallback: 'No se pudieron cargar los modelos disponibles.',
+    );
+  }
+
   /// Envía el texto tal como lo escribió el usuario, junto con el
   /// supermercado donde comprará los ingredientes.
   Future<AssistantRequest> sendRequest({
     required String token,
     required String prompt,
     int? branchId,
+    String? modelId,
   }) {
     return _send(
       () => _client.post(
@@ -43,7 +69,11 @@ class AssistantApi {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({'prompt': prompt, 'branch_id': ?branchId}),
+        body: jsonEncode({
+          'prompt': prompt,
+          'branch_id': ?branchId,
+          'model_id': ?modelId,
+        }),
       ),
       parse: (data) => AssistantRequest.fromJson(_object(data)),
       fallback: 'No se pudo enviar tu petición.',
@@ -84,6 +114,29 @@ class AssistantApi {
     );
   }
 
+  Future<RecipeAvailability> selectProduct({
+    required String token,
+    required int requestId,
+    required int itemId,
+    required int branchId,
+    required int productId,
+  }) {
+    return _send(
+      () => _client.put(
+        _requestsUri.replace(
+          path: '${_requestsUri.path}/$requestId/ingredients/$itemId/product',
+        ),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'branch_id': branchId, 'product_id': productId}),
+      ),
+      parse: (data) => RecipeAvailability.fromJson(_object(data)),
+      fallback: 'No se pudo seleccionar el producto.',
+    );
+  }
+
   /// Recetas que el usuario ya pidió, de la más nueva a la más antigua.
   Future<List<RecipeHistoryEntry>> fetchHistory({required String token}) {
     return _send(
@@ -92,7 +145,8 @@ class AssistantApi {
         headers: {'Authorization': 'Bearer $token'},
       ),
       parse: (data) => [
-        for (final entry in data as List) RecipeHistoryEntry.fromJson(_object(entry)),
+        for (final entry in data as List)
+          RecipeHistoryEntry.fromJson(_object(entry)),
       ],
       fallback: 'No se pudo cargar el historial.',
     );

@@ -25,6 +25,8 @@ class AssistantScreen extends ConsumerStatefulWidget {
 class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   final _requestController = TextEditingController();
   bool _repeating = false;
+  bool _selectingProduct = false;
+  String? _selectedModel;
 
   @override
   void dispose() {
@@ -36,7 +38,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     try {
       final sent = await ref
           .read(assistantChatProvider.notifier)
-          .send(_requestController.text);
+          .send(_requestController.text, modelId: _selectedModel);
       if (sent && mounted) _requestController.clear();
     } on AssistantApiException catch (error) {
       if (mounted) _showError(error.message);
@@ -57,7 +59,10 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           .repeat(entry.id);
       if (!mounted) return;
       final options = availability.options;
-      if (options.length == 1) _showRoute(options.single);
+      if (options.length == 1 &&
+          availability.items.every((item) => item.productOptions.isEmpty)) {
+        _showRoute(options.single);
+      }
     } on AssistantApiException catch (error) {
       if (mounted) _showError(error.message);
     } on AuthApiException catch (error) {
@@ -74,6 +79,39 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           .retryAvailability(entry.request);
     } on AssistantApiException catch (error) {
       if (mounted) _showError(error.message);
+    }
+  }
+
+  Future<void> _retryPolling(AssistantChatEntry entry) async {
+    try {
+      await ref
+          .read(assistantChatProvider.notifier)
+          .retryPolling(entry.request);
+    } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
+    } on AuthApiException catch (error) {
+      if (mounted) _showError(error.message);
+    }
+  }
+
+  Future<void> _selectProduct(
+    AssistantChatEntry entry,
+    int itemId,
+    IngredientProductOption option,
+  ) async {
+    if (_selectingProduct) return;
+    setState(() => _selectingProduct = true);
+    try {
+      await ref
+          .read(assistantChatProvider.notifier)
+          .selectProduct(entry.request, itemId, option);
+    } on AssistantApiException catch (error) {
+      if (mounted) _showError(error.message);
+      await _retryAvailability(entry);
+    } on AuthApiException catch (error) {
+      if (mounted) _showError(error.message);
+    } finally {
+      if (mounted) setState(() => _selectingProduct = false);
     }
   }
 
@@ -104,6 +142,40 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         child: Column(
           children: [
             _AssistantHeader(repeating: _repeating, onHistory: _openHistory),
+            ref
+                .watch(assistantModelsProvider)
+                .when(
+                  data: (models) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedModel,
+                      decoration: const InputDecoration(
+                        labelText: 'Modelo de IA',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Predeterminado'),
+                        ),
+                        for (final model in models)
+                          DropdownMenuItem(
+                            value: model.id,
+                            child: Text(model.label),
+                          ),
+                      ],
+                      onChanged: chat.sending
+                          ? null
+                          : (value) => setState(() => _selectedModel = value),
+                    ),
+                  ),
+                  error: (error, stack) => TextButton(
+                    onPressed: () => ref.invalidate(assistantModelsProvider),
+                    child: const Text(
+                      'No se pudieron cargar los modelos. Reintentar',
+                    ),
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                ),
             Expanded(
               child: entries.isEmpty
                   ? _Welcome(
@@ -127,7 +199,11 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                               currentBranchId: branchId,
                               onRetryAvailability: () =>
                                   _retryAvailability(entry),
+                              onRetryPolling: () => _retryPolling(entry),
                               onShowRoute: _showRoute,
+                              selectingProduct: _selectingProduct,
+                              onSelectProduct: (itemId, option) =>
+                                  _selectProduct(entry, itemId, option),
                             ),
                           ],
                         );

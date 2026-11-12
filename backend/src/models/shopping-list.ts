@@ -58,6 +58,25 @@ export interface AvailableIngredientProduct {
 export interface IngredientProductMatch extends AvailableIngredientProduct {
   ingredient_id: number;
   branch_id: number;
+  price: number;
+  unit_of_measure: string;
+}
+
+export interface ProductChoice {
+  item_id: number;
+  branch_id: number;
+  product_id: number;
+}
+
+export interface ProductOption extends AvailableIngredientProduct {
+  ingredient_id: number;
+  ingredient_name: string;
+  branch_id: number;
+  branch_name: string;
+  price: number;
+  unit_of_measure: string;
+  is_substitute: boolean;
+  selected: boolean;
 }
 
 /** Ingrediente que puede reemplazar a otro; a menor priority, mejor alternativa. */
@@ -92,6 +111,8 @@ export interface IngredientAvailabilityItem extends ShoppingListItem {
   /** Otras sucursales que sí tienen el ingrediente. */
   other_branches: BranchProducts[];
   substitutes: SubstituteInBranch[];
+  product_options: ProductOption[];
+  invalid_selected_branches: number[];
 }
 
 export interface ShoppingRouteStop {

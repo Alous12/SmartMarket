@@ -171,14 +171,17 @@ Map<String, Object?> _substitute(String branch, String product) => {
   'products': [_product(product)],
 };
 
-Map<String, Object?> _stop(int itemId, String product, {bool similar = false}) =>
-    {
-      'item_id': itemId,
-      'ingredient_name': 'Ingrediente $itemId',
-      'product_id': itemId * 10,
-      'product_name': product,
-      'is_substitute': similar,
-    };
+Map<String, Object?> _stop(
+  int itemId,
+  String product, {
+  bool similar = false,
+}) => {
+  'item_id': itemId,
+  'ingredient_name': 'Ingrediente $itemId',
+  'product_id': itemId * 10,
+  'product_name': product,
+  'is_substitute': similar,
+};
 
 Map<String, Object?> _route(
   int branchId,
@@ -212,10 +215,7 @@ final _onlyHere = <String, Object?>{
 final _inBoth = <String, Object?>{
   'branch_id': 2,
   'items': _threeItems,
-  'routes': [
-    _route(2, 'Piloto', _allStops),
-    _route(1, 'Natural', _allStops),
-  ],
+  'routes': [_route(2, 'Piloto', _allStops), _route(1, 'Natural', _allStops)],
 };
 
 /// La sal no existe: tiene reemplazo en ambos; la carne no tiene ninguno.
@@ -223,11 +223,7 @@ final _withMissing = <String, Object?>{
   'branch_id': 2,
   'items': [
     _item(1, 'Masa para lasaña', 'AVAILABLE'),
-    _item(
-      2,
-      'Carne molida',
-      'UNAVAILABLE',
-    ),
+    _item(2, 'Carne molida', 'UNAVAILABLE'),
     _item(
       3,
       'Sal',
@@ -239,10 +235,12 @@ final _withMissing = <String, Object?>{
     ),
   ],
   'routes': [
-    _route(2, 'Piloto', [
-      _stop(1, 'Lasagna'),
-      _stop(3, 'Sal marina', similar: true),
-    ], missing: ['Carne molida']),
+    _route(
+      2,
+      'Piloto',
+      [_stop(1, 'Lasagna'), _stop(3, 'Sal marina', similar: true)],
+      missing: ['Carne molida'],
+    ),
   ],
 };
 
@@ -373,6 +371,38 @@ void main() {
   });
 
   group('HU-14 — Identificar la receta', () {
+    testWidgets('permite recuperar el seguimiento si falla la conexión', (
+      tester,
+    ) async {
+      var polls = 0;
+      await _pumpAssistant(
+        tester,
+        handler: (request) async {
+          if (request.url.path.endsWith('/models')) {
+            return http.Response(jsonEncode({'data': []}), 200);
+          }
+          if (request.method == 'POST') return _created('lasaña');
+          if (request.url.path.endsWith('/availability')) {
+            return _json(_noStock, 200);
+          }
+          if (++polls <= 5) {
+            return http.Response('{"error":"sin conexión"}', 500);
+          }
+          return _json({'request_id': 1, 'prompt': 'lasaña', ..._lasagna}, 200);
+        },
+      );
+      await tester.enterText(find.byType(TextField), 'lasaña');
+      await tester.tap(find.byTooltip('Enviar'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('La petición podría seguir procesándose'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Reintentar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Lasaña de carne'), findsOneWidget);
+    });
+
     testWidgets(
       'CC1 y CC2: la IA recibe la petición sin cambios y con el supermercado elegido',
       (tester) async {
@@ -523,24 +553,25 @@ void main() {
       expect(shown?.modelUrl, 'Modelos_3D/supermercado_1.glb');
     });
 
-    testWidgets('avisa lo que no existe con sus reemplazos en cada supermercado', (
-      tester,
-    ) async {
-      await _pumpAssistant(
-        tester,
-        handler: _assistant([_lasagna], availability: _withMissing),
-      );
+    testWidgets(
+      'avisa lo que no existe con sus reemplazos en cada supermercado',
+      (tester) async {
+        await _pumpAssistant(
+          tester,
+          handler: _assistant([_lasagna], availability: _withMissing),
+        );
 
-      await _askLasagna(tester);
+        await _askLasagna(tester);
 
-      expect(find.text('No hay en ningún supermercado'), findsOneWidget);
-      expect(find.text('Sal'), findsOneWidget);
-      expect(find.text('Reemplazo: Sal marina en Piloto'), findsOneWidget);
-      expect(find.text('Reemplazo: Sal rosada en Natural'), findsOneWidget);
-      expect(find.text('Carne molida'), findsOneWidget);
-      expect(find.text('Sin reemplazo disponible'), findsOneWidget);
-      expect(find.text('Masa para lasaña'), findsNothing);
-    });
+        expect(find.text('No hay en ningún supermercado'), findsOneWidget);
+        expect(find.text('Sal'), findsOneWidget);
+        expect(find.text('Reemplazo: Sal marina en Piloto'), findsOneWidget);
+        expect(find.text('Reemplazo: Sal rosada en Natural'), findsOneWidget);
+        expect(find.text('Carne molida'), findsOneWidget);
+        expect(find.text('Sin reemplazo disponible'), findsOneWidget);
+        expect(find.text('Masa para lasaña'), findsNothing);
+      },
+    );
 
     testWidgets('Mostrar ruta cierra el asistente y entrega la ruta', (
       tester,
@@ -580,20 +611,24 @@ void main() {
       );
     });
 
-    testWidgets('si falla el inventario conserva la receta y permite reintentar', (
-      tester,
-    ) async {
-      await _pumpAssistant(
-        tester,
-        handler: _assistant([_lasagna], availability: null),
-      );
+    testWidgets(
+      'si falla el inventario conserva la receta y permite reintentar',
+      (tester) async {
+        await _pumpAssistant(
+          tester,
+          handler: _assistant([_lasagna], availability: null),
+        );
 
-      await _askLasagna(tester);
+        await _askLasagna(tester);
 
-      expect(find.text('Lasaña de carne'), findsOneWidget);
-      expect(find.text('No se pudo consultar el inventario.'), findsOneWidget);
-      expect(find.text('Reintentar'), findsOneWidget);
-    });
+        expect(find.text('Lasaña de carne'), findsOneWidget);
+        expect(
+          find.text('No se pudo consultar el inventario.'),
+          findsOneWidget,
+        );
+        expect(find.text('Reintentar'), findsOneWidget);
+      },
+    );
   });
 
   group('Chat de la sesión', () {
@@ -664,7 +699,9 @@ void main() {
       expect(find.text('¿Qué quieres cocinar hoy?'), findsOneWidget);
     });
 
-    testWidgets('una sugerencia llena el campo sin enviar nada', (tester) async {
+    testWidgets('una sugerencia llena el campo sin enviar nada', (
+      tester,
+    ) async {
       await _pumpAssistant(tester);
 
       await tester.tap(find.text('Quiero preparar arroz con leche'));
@@ -712,17 +749,18 @@ void main() {
       expect(shown?.branchName, 'Piloto');
     });
 
-    testWidgets('si hay dos supermercados deja la receta en el chat para elegir', (
-      tester,
-    ) async {
-      await _pumpAssistant(tester, handler: withoutAi(_inBoth));
+    testWidgets(
+      'si hay dos supermercados deja la receta en el chat para elegir',
+      (tester) async {
+        await _pumpAssistant(tester, handler: withoutAi(_inBoth));
 
-      await repeatLasagna(tester);
+        await repeatLasagna(tester);
 
-      expect(find.byType(AssistantScreen), findsOneWidget);
-      expect(find.text('Natural'), findsOneWidget);
-      expect(find.text('Piloto'), findsOneWidget);
-    });
+        expect(find.byType(AssistantScreen), findsOneWidget);
+        expect(find.text('Natural'), findsOneWidget);
+        expect(find.text('Piloto'), findsOneWidget);
+      },
+    );
   });
 }
 

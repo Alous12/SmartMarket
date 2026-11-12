@@ -55,6 +55,8 @@ model branches {
   shelf_slots        shelf_slots[]
   shopping_lists     shopping_lists[]
   users              users[]
+  assistant_product_choices assistant_product_choices[]
+  assistant_choice_events assistant_choice_events[]
 }
 
 model categories {
@@ -77,6 +79,7 @@ model ingredients {
   user_preferences    user_preferences[]
   substitutes         ingredient_substitutes[] @relation("ingredient_substitutes_ingredient")
   substitute_of       ingredient_substitutes[] @relation("ingredient_substitutes_substitute")
+  assistant_choice_events assistant_choice_events[]
 }
 
 model ingredient_substitutes {
@@ -144,6 +147,8 @@ model products {
   image_url                                                              String?               @db.Text
   category_id                                                            Int
   status                                                                 Boolean               @default(true)
+  assistant_product_choices                                              assistant_product_choices[]
+  assistant_choice_events                                                assistant_choice_events[]
   created_at                                                             DateTime              @default(now()) @db.Timestamp(0)
   inventory                                                              inventory[]
   product_ingredients                                                    product_ingredients[]
@@ -264,6 +269,8 @@ model shopping_list_items {
   created_at      DateTime       @default(now()) @db.Timestamp(0)
   shopping_lists  shopping_lists @relation(fields: [list_id], references: [list_id], onDelete: Cascade, map: "fk_shopping_list_items_list")
   ingredients     ingredients?   @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: SetNull, map: "fk_shopping_list_items_ingredient")
+  assistant_product_choices assistant_product_choices[]
+  assistant_choice_events assistant_choice_events[]
 
   @@index([list_id], map: "idx_shopping_list_items_list")
   @@index([ingredient_id], map: "idx_shopping_list_items_ingredient")
@@ -326,6 +333,7 @@ model users {
   shopping_lists                              shopping_lists[]
   substitution_events                         substitution_events[]
   user_preferences                            user_preferences[]
+  assistant_choice_events                     assistant_choice_events[]
   users_users_created_by_user_idTousers       users?                @relation("users_created_by_user_idTousers", fields: [created_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_created_by")
   other_users_users_created_by_user_idTousers users[]               @relation("users_created_by_user_idTousers")
   users_users_updated_by_user_idTousers       users?                @relation("users_updated_by_user_idTousers", fields: [updated_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_updated_by")
@@ -334,6 +342,44 @@ model users {
   @@index([branch_id], map: "idx_users_branch")
   @@index([created_by_user_id], map: "fk_users_created_by")
   @@index([updated_by_user_id], map: "fk_users_updated_by")
+}
+
+model assistant_product_choices {
+  item_id     Int
+  branch_id   Int
+  product_id  Int
+  selected_at DateTime @default(now()) @db.Timestamp(0)
+  item shopping_list_items @relation(fields: [item_id], references: [item_id], onDelete: Cascade, map: "fk_assistant_choice_item")
+  branch branches @relation(fields: [branch_id], references: [branch_id], onDelete: Cascade, map: "fk_assistant_choice_branch")
+  product products @relation(fields: [product_id], references: [product_id], onDelete: Restrict, map: "fk_assistant_choice_product")
+
+  @@id([item_id, branch_id])
+  @@index([product_id], map: "idx_assistant_choice_product")
+  @@index([branch_id], map: "idx_assistant_choice_branch")
+}
+
+model assistant_choice_events {
+  event_id Int @id @default(autoincrement())
+  user_id Int
+  item_id Int?
+  branch_id Int
+  product_id Int
+  ingredient_id Int
+  price Decimal @db.Decimal(10, 2)
+  chose_cheapest Boolean?
+  candidates_at_selection Json
+  created_at DateTime @default(now()) @db.Timestamp(0)
+  user users @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_assistant_event_user")
+  item shopping_list_items? @relation(fields: [item_id], references: [item_id], onDelete: SetNull, map: "fk_assistant_event_item")
+  branch branches @relation(fields: [branch_id], references: [branch_id], onDelete: Restrict, map: "fk_assistant_event_branch")
+  product products @relation(fields: [product_id], references: [product_id], onDelete: Restrict, map: "fk_assistant_event_product")
+  ingredient ingredients @relation(fields: [ingredient_id], references: [ingredient_id], onDelete: Restrict, map: "fk_assistant_event_ingredient")
+
+  @@index([user_id], map: "idx_assistant_event_user")
+  @@index([item_id], map: "idx_assistant_event_item")
+  @@index([product_id], map: "idx_assistant_event_product")
+  @@index([ingredient_id], map: "idx_assistant_event_ingredient")
+  @@index([branch_id], map: "idx_assistant_event_branch")
 }
 
 enum assistant_requests_status {

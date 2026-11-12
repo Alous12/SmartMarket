@@ -9,6 +9,104 @@ import 'package:smartmarket/features/assistant/domain/entities/recipe_availabili
 
 void main() {
   group('AssistantApi', () {
+    test('consulta modelos y envía el modelo seleccionado', () async {
+      final client = MockClient((request) async {
+        if (request.method == 'GET') {
+          expect(request.url.path, '/api/assistant/models');
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'id': 'ollama:gemma4:12b', 'label': 'Ollama (gemma4:12b)'},
+              ],
+            }),
+            200,
+          );
+        }
+        expect(jsonDecode(request.body), {
+          'prompt': 'lasaña',
+          'model_id': 'ollama:gemma4:12b',
+        });
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'request_id': 3,
+              'prompt': 'lasaña',
+              'status': 'PROCESSING',
+            },
+          }),
+          201,
+        );
+      });
+      final api = AssistantApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+      expect(
+        (await api.fetchModels(token: 'signed-token')).single.id,
+        'ollama:gemma4:12b',
+      );
+      await api.sendRequest(
+        token: 'signed-token',
+        prompt: 'lasaña',
+        modelId: 'ollama:gemma4:12b',
+      );
+    });
+
+    test('selecciona un producto y recibe la elección actualizada', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'PUT');
+        expect(
+          request.url.path,
+          '/api/assistant/requests/7/ingredients/3/product',
+        );
+        expect(jsonDecode(request.body), {'branch_id': 1, 'product_id': 30});
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'branch_id': 1,
+              'items': [
+                {
+                  'item_id': 3,
+                  'name': 'Leche',
+                  'availability': 'AVAILABLE',
+                  'other_branches': [],
+                  'substitutes': [],
+                  'product_options': [
+                    {
+                      'product_id': 30,
+                      'branch_id': 1,
+                      'branch_name': 'Natural',
+                      'name': 'Leche',
+                      'price': 10.5,
+                      'unit_of_measure': 'l',
+                      'ingredient_name': 'Leche',
+                      'is_substitute': false,
+                      'selected': true,
+                    },
+                  ],
+                },
+              ],
+              'routes': [],
+            },
+          }),
+          200,
+        );
+      });
+      final api = AssistantApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+      final result = await api.selectProduct(
+        token: 'signed-token',
+        requestId: 7,
+        itemId: 3,
+        branchId: 1,
+        productId: 30,
+      );
+      expect(result.items.single.productOptions.single.selected, isTrue);
+      expect(result.items.single.productOptions.single.price, 10.5);
+    });
+
     test(
       'envía la petición sin modificaciones y con el token de sesión',
       () async {
