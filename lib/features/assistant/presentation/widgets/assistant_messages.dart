@@ -52,7 +52,10 @@ class AssistantReply extends StatelessWidget {
     required this.entry,
     required this.currentBranchId,
     required this.onRetryAvailability,
+    required this.onRetryPolling,
     required this.onShowRoute,
+    required this.onSelectProduct,
+    required this.selectingProduct,
   });
 
   final AssistantChatEntry entry;
@@ -60,19 +63,37 @@ class AssistantReply extends StatelessWidget {
   /// Supermercado abierto en el mapa.
   final int? currentBranchId;
   final VoidCallback onRetryAvailability;
+  final VoidCallback onRetryPolling;
   final ValueChanged<ShoppingRoute> onShowRoute;
+  final void Function(int, IngredientProductOption) onSelectProduct;
+  final bool selectingProduct;
 
   @override
   Widget build(BuildContext context) {
     final request = entry.request;
     final recipeName = request.recipeName;
     final Widget content = switch (request.status) {
-      AssistantRequestStatus.received ||
-      AssistantRequestStatus.processing => _Progress(
-        text: recipeName == null
-            ? 'Identificando la receta…'
-            : 'Preparando la lista de $recipeName…',
-      ),
+      AssistantRequestStatus.received || AssistantRequestStatus.processing =>
+        entry.pollingFailed
+            ? Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'No se pudo consultar el avance. La petición podría seguir procesándose.',
+                      style: _hint,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onRetryPolling,
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              )
+            : _Progress(
+                text: recipeName == null
+                    ? 'Identificando la receta…'
+                    : 'Preparando la lista de $recipeName…',
+              ),
       AssistantRequestStatus.completed => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -91,6 +112,8 @@ class AssistantReply extends StatelessWidget {
             currentBranchId: currentBranchId,
             onRetry: onRetryAvailability,
             onShowRoute: onShowRoute,
+            onSelectProduct: onSelectProduct,
+            selectingProduct: selectingProduct,
           ),
         ],
       ),
@@ -149,11 +172,7 @@ class AssistantAvatar extends StatelessWidget {
         color: AppTheme.tint,
         shape: BoxShape.circle,
       ),
-      child: Icon(
-        Icons.auto_awesome,
-        size: size * 0.55,
-        color: AppTheme.green,
-      ),
+      child: Icon(Icons.auto_awesome, size: size * 0.55, color: AppTheme.green),
     );
   }
 }
@@ -247,12 +266,16 @@ class _AvailabilitySummary extends StatelessWidget {
     required this.currentBranchId,
     required this.onRetry,
     required this.onShowRoute,
+    required this.onSelectProduct,
+    required this.selectingProduct,
   });
 
   final AssistantChatEntry entry;
   final int? currentBranchId;
   final VoidCallback onRetry;
   final ValueChanged<ShoppingRoute> onShowRoute;
+  final void Function(int, IngredientProductOption) onSelectProduct;
+  final bool selectingProduct;
 
   @override
   Widget build(BuildContext context) {
@@ -280,6 +303,36 @@ class _AvailabilitySummary extends StatelessWidget {
           text: availability.summaryFor(currentBranchId),
           positive: availability.hasFullRoute,
         ),
+        for (final item in availability.items)
+          if (item.productOptions.isNotEmpty ||
+              item.invalidSelectedBranches.isNotEmpty)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text(
+                item.invalidSelectedBranches.isEmpty
+                    ? 'Opciones para ${item.name}'
+                    : 'El producto de ${item.name} ya no está disponible. Elige otro.',
+                style: _hint,
+              ),
+              children: [
+                for (final option in item.productOptions)
+                  ListTile(
+                    dense: true,
+                    title: Text(option.name),
+                    subtitle: Text(
+                      '${option.branchName}'
+                      ' · ${option.price.toStringAsFixed(2)} · ${option.unit}'
+                      '${option.isSubstitute ? ' · Reemplazo: ${option.ingredientName}' : ''}',
+                    ),
+                    trailing: option.selected
+                        ? const Icon(Icons.check_circle, color: AppTheme.green)
+                        : const Icon(Icons.add_circle_outline),
+                    onTap: selectingProduct || option.selected
+                        ? null
+                        : () => onSelectProduct(item.itemId, option),
+                  ),
+              ],
+            ),
         if (nowhere.isNotEmpty) ...[
           const SizedBox(height: 10),
           _MissingProducts(items: nowhere),

@@ -14,6 +14,17 @@ final assistantApiProvider = Provider<AssistantApi>((ref) {
   return AssistantApi(client: client, baseUri: Uri.parse(apiBaseUrl));
 });
 
+final assistantModelsProvider =
+    FutureProvider.autoDispose<List<AssistantModel>>((ref) async {
+      final session = await ref.watch(authControllerProvider.future);
+      if (session == null) {
+        throw const AssistantApiException(
+          'Inicia sesión para elegir un modelo.',
+        );
+      }
+      return ref.watch(assistantApiProvider).fetchModels(token: session.token);
+    }, retry: (count, error) => null);
+
 /// Sucursal del supermercado elegido en el mapa, donde se comprará la receta.
 /// Es null si no se pudo consultar.
 final assistantBranchIdProvider = FutureProvider.autoDispose<int?>((ref) async {

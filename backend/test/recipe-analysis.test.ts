@@ -4,11 +4,29 @@ import { test } from 'node:test';
 import { AiServiceError } from '../src/services/ai/ai-error.js';
 import {
   buildRecipeInstruction,
+  buildCompactRecipeInstruction,
+  parseCompactRecipeAnalysis,
   defaultRejectionMessage,
   maxRecipeNameLength,
   parseRecipeAnalysis,
   recipeResponseSchema,
 } from '../src/services/ai/recipe-analysis.js';
+
+test('compact local output uses the same validation and normalized result', () => {
+  const result = parseCompactRecipeAnalysis({
+    r: true, n: 'Ensalada', i: [{ n: 'Tomate', q: 2, u: 'u' }], m: null,
+  });
+  assert.deepEqual(result, {
+    isRecipe: true, recipeName: 'Ensalada',
+    ingredients: [{ name: 'Tomate', quantity: 2, unit: 'u' }],
+  });
+  assert.deepEqual(parseCompactRecipeAnalysis({ r: false, n: null, i: [], m: 'Solo recetas.' }),
+    { isRecipe: false, message: 'Solo recetas.' });
+  for (const output of [null, {}, { r: true, n: 'Ensalada', i: [{ n: '' }] }]) {
+    assert.throws(() => parseCompactRecipeAnalysis(output), AiServiceError);
+  }
+  assert.match(buildCompactRecipeInstruction(['Tomate']), /Tomate/);
+});
 
 function isAiFailure(error: unknown): boolean {
   return error instanceof AiServiceError && !error.rejected;

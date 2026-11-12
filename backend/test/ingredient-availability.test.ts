@@ -45,8 +45,73 @@ function product(
     stock_quantity: 4,
     section_name: 'Pasillo 1',
     shelf: 'E01',
+    price: 10,
+    unit_of_measure: 'u',
   };
 }
+
+test('offers stocked alternatives even when the original exists and uses a confirmed selection', () => {
+  const original = product(selected, 20, 100, 'Crema');
+  const alternative = { ...product(selected, 21, 101, 'Leche'), price: 5 };
+  const result = buildIngredientAvailability({
+    items: [crema],
+    branchId: selected,
+    branches,
+    products: [original, alternative],
+    substitutions: [cremaByLeche],
+    choices: [{ item_id: crema.item_id, branch_id: selected, product_id: 101 }],
+  });
+  assert.deepEqual(result.items[0].product_options.map((option) => option.product_id), [100, 101]);
+  assert.equal(result.items[0].product_options[1].selected, true);
+  assert.equal(result.routes[0].stops[0].product_id, 101);
+  assert.equal(result.routes[0].stops[0].is_substitute, true);
+});
+
+test('does not silently replace a selection that lost stock', () => {
+  const result = buildIngredientAvailability({
+    items: [crema],
+    branchId: selected,
+    branches,
+    products: [product(selected, 20, 100, 'Crema')],
+    substitutions: [cremaByLeche],
+    choices: [{ item_id: crema.item_id, branch_id: selected, product_id: 101 }],
+  });
+  assert.deepEqual(result.items[0].invalid_selected_branches, [selected]);
+  assert.equal(result.routes.length, 0);
+});
+
+test('uses explicit ingredient preferences and price signals to order options', () => {
+  const result = buildIngredientAvailability({
+    items: [crema],
+    branchId: selected,
+    branches,
+    products: [
+      { ...product(selected, 20, 100, 'Crema cara'), price: 20 },
+      { ...product(selected, 20, 101, 'Crema económica'), price: 10 },
+      product(selected, 21, 102, 'Leche'),
+    ],
+    substitutions: [cremaByLeche],
+    preferLowerPrice: true,
+    preferences: [{ ingredient_id: 21, preference_type: 'PREFER' }],
+  });
+
+  assert.deepEqual(result.items[0].product_options.map((option) => option.product_id), [102, 101, 100]);
+});
+
+test('learned ingredient preferences rank alternatives below explicit preferences', () => {
+  const input = {
+    items: [crema],
+    branchId: selected,
+    branches,
+    products: [product(selected, 20, 100, 'Crema'), product(selected, 21, 101, 'Leche')],
+    substitutions: [cremaByLeche],
+    learnedIngredients: [{ ingredient_id: 20, preferred_ingredient_id: 21 }],
+  };
+  assert.deepEqual(buildIngredientAvailability(input).items[0].product_options.map((option) => option.product_id), [101, 100]);
+  assert.deepEqual(buildIngredientAvailability({
+    ...input, preferences: [{ ingredient_id: 21, preference_type: 'AVOID' }],
+  }).items[0].product_options.map((option) => option.product_id), [100, 101]);
+});
 
 const tomate = item(1, 'Tomate', 10);
 const crema = item(2, 'Crema de leche', 20);

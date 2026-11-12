@@ -10,11 +10,14 @@ import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
 import { AiServiceError } from './ai/ai-error.js';
-import { generateJson } from './ai/gemini-provider.js';
+import { availableModels, generateJson, resolveModel, type AiModel } from './ai/ai-provider.js';
 import {
   buildRecipeInstruction,
+  buildCompactRecipeInstruction,
+  compactRecipeResponseSchema,
   maxAnalyzedPromptLength,
   parseRecipeAnalysis,
+  parseCompactRecipeAnalysis,
   recipeResponseSchema,
   type RecipeAnalysis,
 } from './ai/recipe-analysis.js';
@@ -32,7 +35,14 @@ export async function submitRequest(
   body: unknown,
 ): Promise<AssistantRequest> {
   const identity = getIdentity(authorization);
-  const { prompt, branchId } = parseAssistantRequest(body);
+  const { prompt, branchId, modelId } = parseAssistantRequest(body);
+  let model: AiModel;
+  try {
+    model = resolveModel(modelId);
+  } catch (error) {
+    if (error instanceof AiServiceError) throw new HttpError(400, error.userMessage);
+    throw error;
+  }
   if (branchId !== null && !(await branchRepository.isActive(branchId))) {
     throw new HttpError(400, 'branch_id no corresponde a una sucursal activa.');
   }
@@ -44,8 +54,13 @@ export async function submitRequest(
   const processing = await startProcessing(received);
   // La IA tarda unos segundos: se responde de inmediato y la app consulta el
   // resultado con getRequest. processRequest nunca lanza errores.
-  void processRequest(processing);
+  void processRequest(processing, model);
   return processing;
+}
+
+export function listModels(authorization: string | undefined): AiModel[] {
+  getIdentity(authorization);
+  return availableModels();
 }
 
 /** Petición del usuario con su estado actual y los ingredientes generados. */
@@ -87,7 +102,7 @@ async function startProcessing(
 }
 
 /** HU-14 y HU-15: la IA decide si la petición es una receta y extrae sus ingredientes. */
-async function analyzePrompt(prompt: string): Promise<RecipeAnalysis> {
+async function analyzePrompt(prompt: string, model: AiModel): Promise<RecipeAnalysis> {
   if (prompt.length > maxAnalyzedPromptLength) {
     return {
       isRecipe: false,
@@ -95,12 +110,15 @@ async function analyzePrompt(prompt: string): Promise<RecipeAnalysis> {
     };
   }
   const catalogNames = await ingredientRepository.findAllNames();
+  const compact = model.id.startsWith('ollama:');
   const output = await generateJson({
-    systemInstruction: buildRecipeInstruction(catalogNames),
+    systemInstruction: compact
+      ? buildCompactRecipeInstruction(catalogNames)
+      : buildRecipeInstruction(catalogNames),
     userText: prompt,
-    responseSchema: recipeResponseSchema,
-  });
-  return parseRecipeAnalysis(output);
+    responseSchema: compact ? compactRecipeResponseSchema : recipeResponseSchema,
+  }, model);
+  return compact ? parseCompactRecipeAnalysis(output) : parseRecipeAnalysis(output);
 }
 
 /**
@@ -108,7 +126,7 @@ async function analyzePrompt(prompt: string): Promise<RecipeAnalysis> {
  * REJECTED si no es una receta, COMPLETED con la receta y su lista de
  * ingredientes (HU-16), o FAILED con un mensaje para el usuario.
  */
-export async function processRequest(request: AssistantRequest): Promise<void> {
+export async function processRequest(request: AssistantRequest, model: AiModel): Promise<void> {
   const save = (
     status: AssistantRequestStatus,
     recipeName: string | null,
@@ -128,7 +146,7 @@ export async function processRequest(request: AssistantRequest): Promise<void> {
       return;
     }
 
-    const analysis = await analyzePrompt(request.prompt);
+    const analysis = await analyzePrompt(request.prompt, model);
     if (!analysis.isRecipe) {
       await save('REJECTED', null, analysis.message);
       return;

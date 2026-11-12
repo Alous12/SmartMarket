@@ -209,6 +209,8 @@ genéricos.
 | `PUT` | `/api/assistant/requests/:requestId/ingredients` | Generar la lista a partir de los ingredientes identificados |
 | `GET` | `/api/assistant/requests/:requestId/ingredients` | Consultar la lista generada |
 | `GET` | `/api/assistant/requests/:requestId/ingredients/availability` | Comparar la lista con el inventario y obtener las rutas de compra |
+| `PUT` | `/api/assistant/requests/:requestId/ingredients/:itemId/product` | Seleccionar un producto disponible para el ingrediente y la sucursal |
+| `GET` | `/api/assistant/models` | Listar proveedores configurados para elegir en el asistente |
 
 El `PUT` recibe la salida del paso de identificación,
 `{"ingredients": [{"name": "Tomate", "quantity": 3, "unit": "u"}]}`, donde
@@ -234,6 +236,30 @@ incluye:
 - `substitutes`: producto similar en cada sucursal donde falta, según la tabla
   `ingredient_substitutes` (se usa la primera alternativa con stock por
   `priority`).
+- `product_options`: productos originales y sustitutos de todas las sucursales
+  activas con stock y ubicación, incluyendo precio y selección actual.
+- `invalid_selected_branches`: sucursales donde una selección anterior ya no
+  es válida. No se reemplaza silenciosamente en la ruta.
+
+Para elegir un producto, envía al nuevo `PUT` el cuerpo
+`{"branch_id": 1, "product_id": 123}`. El servidor comprueba que la lista
+pertenezca al usuario y que el producto siga activo, relacionado con el
+ingrediente o un sustituto y disponible en esa sucursal. Si ya no es válido,
+responde `409`; si la selección es válida, devuelve la disponibilidad y rutas
+actualizadas. Volver a enviar la misma elección no genera otra señal.
+
+Las elecciones se registran por usuario en `assistant_choice_events` y las
+selecciones actuales en `assistant_product_choices`. Con al menos tres
+elecciones comparables, si al menos el 70 % son del precio de venta más bajo,
+se prioriza el precio dentro de productos del mismo ingrediente y unidad. Un
+producto elegido en tres elementos diferentes también se prioriza. Estos son
+indicadores internos, no restricciones absolutas. Si un ingrediente o sustituto
+se elige en al menos el 70 % de tres o más elecciones para un ingrediente de
+la receta, se prioriza para ese ingrediente. Las preferencias explícitas en
+`user_preferences` tienen prioridad. El precio de venta no implica que el producto sea más barato por
+cantidad: el catálogo aún no tiene datos suficientes para compararlo. Tampoco
+hay atributos verificados de dieta, por lo que no se etiqueta ningún producto
+como vegetariano o vegano.
 
 La respuesta incluye además `routes`: un recorrido por cada sucursal con algo de
 la lista. Van primero las que tienen más ingredientes exactos, luego las que más
@@ -250,23 +276,44 @@ El historial permite repetir una receta sin consultar a la IA: se vuelve a
 comparar su lista guardada con el inventario actual. El chat, en cambio, vive en
 la memoria de la app y se borra al cerrar sesión.
 
-#### Análisis con IA (Gemini)
+#### Análisis con IA (Gemini y Ollama)
 
 Configura `GEMINI_API_KEY` en `backend/.env` (clave gratuita en
 [Google AI Studio](https://aistudio.google.com/apikey)); `GEMINI_MODEL` es
 opcional y por defecto usa `gemini-3.5-flash-lite`. La clave solo vive en el
-backend: la app nunca la recibe.
+backend: la app nunca la recibe. Para habilitar Ollama, inicia el servicio en
+la computadora que ejecuta Express y configura, por ejemplo:
+
+```dotenv
+AI_PROVIDER=gemini
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=gemma4:12b
+OLLAMA_MODELS=
+```
+
+El nombre debe corresponder al modelo instalado (`ollama list`). Reinicia el
+backend después de modificar su configuración. `AI_PROVIDER` puede ser
+`gemini`, `ollama` (usa `OLLAMA_MODEL`) u `ollama:<nombre>` para un modelo
+configurado. `OLLAMA_MODELS` permite agregar modelos locales separados por
+comas, después de descargarlos; por ejemplo, `OLLAMA_MODELS=qwen3:4b`.
+La app permite elegir entre los modelos configurados para cada petición.
+La URL se configura únicamente en el servidor y no debe
+exponerse a Internet. No hay cambio automático de proveedor al agotar la
+cuota: el usuario puede seleccionar el otro y volver a intentar.
 
 El `POST` responde de inmediato con `status: PROCESSING` y el backend analiza la
 petición en segundo plano (`backend/src/services/ai/`):
 
-1. Gemini recibe el texto tal cual lo escribió el usuario, con instrucciones que
-   lo limitan a recetas y un esquema JSON obligatorio para su respuesta.
+1. El proveedor elegido recibe el texto tal cual lo escribió el usuario, con
+   instrucciones que lo limitan a recetas y un esquema JSON para su respuesta.
 2. Si el texto no es una receta, la petición queda `REJECTED` con un mensaje.
 3. Si es una receta, se guarda `recipe_name` y sus ingredientes se entregan a
    `generateIngredientList`, que los registra uno por uno en la sucursal de la
    petición; la petición queda `COMPLETED`.
-4. Si el modelo está saturado (503) se reintenta hasta dos veces.
+4. Si Gemini está saturado (503) se reintenta hasta dos veces. Ollama dispone
+   de hasta 10 minutos para cargar y generar una respuesta compacta y no usa
+   razonamiento extendido; el tiempo real depende de la memoria y hardware de
+   la computadora.
 5. Ante cualquier otro error (sin clave, límite de la cuota gratuita, respuesta
    inválida) queda `FAILED` con un `response_message` para el usuario y el
    detalle técnico en el log del servidor.
@@ -274,7 +321,9 @@ petición en segundo plano (`backend/src/services/ai/`):
 La IA recibe el catálogo de `ingredients` para usar los mismos nombres, de modo
 que la lista se pueda cruzar con el inventario. La app envía el supermercado
 elegido en el mapa como `branch_id` y consulta el `GET` cada 2 segundos hasta
-que la petición termina.
+que la petición termina. El procesamiento se ejecuta en memoria en el backend:
+si se reinicia durante una petición, esta puede quedar en `PROCESSING` y tendrá
+que volver a enviarse.
 
 ### Datos de las sucursales
 
