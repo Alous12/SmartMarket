@@ -118,13 +118,14 @@ export async function getIngredientAvailability(
     ),
   ];
   const substitutions = await ingredientRepository.findSubstitutions(ingredientIds);
-  const [products, branches, choices, profile] = await Promise.all([
+  const [products, branches, choices, recommendations, profile] = await Promise.all([
     ingredientRepository.findAvailableProducts([
       ...ingredientIds,
       ...substitutions.map((substitution) => substitution.substitute_ingredient_id),
     ]),
     branchRepository.findActive(),
     choiceRepository.findChoices(list.list_id),
+    choiceRepository.findRecommendations(list.list_id),
     choiceRepository.findProfile(identity.userId),
   ]);
 
@@ -135,6 +136,8 @@ export async function getIngredientAvailability(
     products,
     substitutions,
     choices,
+    recommendations,
+    requireRecommendation: request.recommendations_ready,
     ...profile,
   });
   await shoppingListRepository.saveAvailability(items);
@@ -146,6 +149,22 @@ export async function getIngredientAvailability(
     items,
     routes,
   };
+}
+
+export async function setIngredientExcluded(
+  authorization: string | undefined,
+  requestId: number,
+  itemId: number,
+  body: unknown,
+): Promise<IngredientAvailabilityList> {
+  const identity = getIdentity(authorization);
+  if (typeof body !== 'object' || body === null || Array.isArray(body) ||
+      !('excluded' in body) || typeof body.excluded !== 'boolean' ||
+      Object.keys(body).some((key) => key !== 'excluded')) {
+    throw new HttpError(400, 'Indica si el ingrediente debe excluirse.');
+  }
+  await choiceRepository.setExcluded({ userId: identity.userId, requestId, itemId, excluded: body.excluded });
+  return getIngredientAvailability(authorization, requestId);
 }
 
 export async function selectProduct(

@@ -7,7 +7,7 @@ test('real MySQL validates ownership, stock and idempotent selections', {
   skip: process.env.RUN_DB_INTEGRATION !== '1',
 }, async () => {
   const { pool } = await import('../src/database/pool.js');
-  const { saveChoice, findChoices, findProfile } = await import('../src/repositories/assistant-choice-repository.js');
+  const { saveChoice, findChoices, findProfile, saveIntents, findIntents } = await import('../src/repositories/assistant-choice-repository.js');
   const { app } = await import('../src/app.js');
   const { createAuthToken } = await import('../src/services/auth-token.js');
   const server = app.listen(0, '127.0.0.1');
@@ -38,6 +38,8 @@ test('real MySQL validates ownership, stock and idempotent selections', {
       [`test-${randomUUID()}@invalid.example`],
     );
     userId = user.insertId;
+    await saveIntents(userId, ['Productos económicos', '  productos   económicos  ', 'Sin carne']);
+    assert.deepEqual(new Set(await findIntents(userId)), new Set(['productos económicos', 'sin carne']));
     const [request] = await pool.execute<ResultSetHeader>(
       `INSERT INTO assistant_requests (user_id, branch_id, prompt, status)
        VALUES (?, ?, 'prueba temporal', 'COMPLETED')`,
@@ -72,6 +74,19 @@ test('real MySQL validates ownership, stock and idempotent selections', {
     assert.equal(response.status, 200);
     const result = await response.json() as { data: { items: Array<{ product_options: Array<{ product_id: number; selected: boolean }> }> } };
     assert.ok(result.data.items[0].product_options.some((option) => option.product_id === Number(productId) && option.selected));
+    const exclusionTarget = `${base}/requests/${request.insertId}/ingredients/${item.insertId}/exclusion`;
+    const exclude = (auth: string, excluded: boolean) => fetch(exclusionTarget, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ excluded }),
+    });
+    assert.equal((await exclude(otherToken, true)).status, 404);
+    const excluded = await exclude(token, true);
+    assert.equal(excluded.status, 200);
+    const exclusionResult = await excluded.json() as { data: { items: Array<{ excluded: boolean }>; routes: unknown[] } };
+    assert.equal(exclusionResult.data.items[0].excluded, true);
+    assert.deepEqual(exclusionResult.data.routes, []);
+    assert.equal((await exclude(token, false)).status, 200);
     await assert.rejects(saveChoice({ ...input, userId: 2147483647 }), /no encontrado/);
     await assert.rejects(saveChoice({ ...input, productId: 2147483647 }), /no está disponible/);
     await saveChoice(input);
@@ -83,7 +98,7 @@ test('real MySQL validates ownership, stock and idempotent selections', {
       'SELECT COUNT(*) AS count FROM assistant_choice_events WHERE user_id = ?',
       [userId],
     );
-    assert.equal(Number(events[0].count), 1);
+    assert.equal(Number(events[0].count), 2);
     assert.equal((await findProfile(userId)).preferLowerPrice, false);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

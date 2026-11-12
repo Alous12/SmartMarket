@@ -113,6 +113,46 @@ test('learned ingredient preferences rank alternatives below explicit preference
   }).items[0].product_options.map((option) => option.product_id), [100, 101]);
 });
 
+test('respects validated recommendations, exclusion and the best coverage branch', () => {
+  const result = buildIngredientAvailability({
+    items: [tomate, crema],
+    branchId: selected,
+    branches,
+    products: [
+      product(selected, 10, 100, 'Tomate'),
+      product(other, 10, 200, 'Tomate otro'),
+      product(other, 20, 201, 'Crema cara'),
+      { ...product(other, 20, 202, 'Crema económica'), price: 5 },
+    ],
+    substitutions: [],
+    recommendations: [
+      { item_id: tomate.item_id, branch_id: selected, product_id: 100 },
+      { item_id: tomate.item_id, branch_id: other, product_id: 200 },
+      { item_id: crema.item_id, branch_id: other, product_id: 202 },
+    ],
+    requireRecommendation: true,
+  });
+  assert.equal(result.routes[0].branch_id, other);
+  assert.equal(result.routes[0].stops.find((stop) => stop.item_id === crema.item_id)?.product_id, 202);
+  const excluded = buildIngredientAvailability({
+    items: [{ ...tomate, excluded: true }, crema],
+    branchId: selected, branches,
+    products: [product(other, 10, 200, 'Tomate'), product(other, 20, 201, 'Crema')],
+    substitutions: [],
+  });
+  assert.deepEqual(excluded.routes[0].stops.map((stop) => stop.item_id), [crema.item_id]);
+  assert.deepEqual(excluded.routes[0].missing, []);
+});
+
+test('does not silently select a candidate the AI omitted', () => {
+  const result = buildIngredientAvailability({
+    items: [tomate], branchId: selected, branches,
+    products: [product(selected, 10, 100, 'Tomate')], substitutions: [],
+    requireRecommendation: true,
+  });
+  assert.equal(result.routes.length, 0);
+});
+
 const tomate = item(1, 'Tomate', 10);
 const crema = item(2, 'Crema de leche', 20);
 const chorizo = item(3, 'Chorizo', 30);

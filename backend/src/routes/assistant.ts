@@ -9,6 +9,7 @@ import {
   listModels,
   saveIngredients,
   selectProduct,
+  setIngredientExcluded,
 } from '../controllers/assistant-controller.js';
 
 export const assistantRouter = Router();
@@ -24,3 +25,4 @@ assistantRouter.get(
   getIngredientAvailability,
 );
 assistantRouter.put('/requests/:requestId/ingredients/:itemId/product', selectProduct);
+assistantRouter.put('/requests/:requestId/ingredients/:itemId/exclusion', setIngredientExcluded);

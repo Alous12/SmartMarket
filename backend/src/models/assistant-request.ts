@@ -17,6 +17,7 @@ export interface AssistantRequest {
   recipe_name: string | null;
   /** Mensaje para el usuario cuando la petición se rechaza o falla. */
   response_message: string | null;
+  recommendations_ready?: boolean;
   created_at: Date;
   updated_at: Date;
 }

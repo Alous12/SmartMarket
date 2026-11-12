@@ -56,6 +56,7 @@ class AssistantReply extends StatelessWidget {
     required this.onShowRoute,
     required this.onSelectProduct,
     required this.selectingProduct,
+    required this.onExcludeIngredient,
   });
 
   final AssistantChatEntry entry;
@@ -67,6 +68,7 @@ class AssistantReply extends StatelessWidget {
   final ValueChanged<ShoppingRoute> onShowRoute;
   final void Function(int, IngredientProductOption) onSelectProduct;
   final bool selectingProduct;
+  final void Function(int, bool) onExcludeIngredient;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +116,7 @@ class AssistantReply extends StatelessWidget {
             onShowRoute: onShowRoute,
             onSelectProduct: onSelectProduct,
             selectingProduct: selectingProduct,
+            onExcludeIngredient: onExcludeIngredient,
           ),
         ],
       ),
@@ -268,6 +271,7 @@ class _AvailabilitySummary extends StatelessWidget {
     required this.onShowRoute,
     required this.onSelectProduct,
     required this.selectingProduct,
+    required this.onExcludeIngredient,
   });
 
   final AssistantChatEntry entry;
@@ -276,6 +280,7 @@ class _AvailabilitySummary extends StatelessWidget {
   final ValueChanged<ShoppingRoute> onShowRoute;
   final void Function(int, IngredientProductOption) onSelectProduct;
   final bool selectingProduct;
+  final void Function(int, bool) onExcludeIngredient;
 
   @override
   Widget build(BuildContext context) {
@@ -294,6 +299,22 @@ class _AvailabilitySummary extends StatelessWidget {
       return const _Progress(text: 'Consultando el inventario…');
     }
 
+    if (availability.items.any(
+      (item) => item.productOptions.isNotEmpty || item.excluded,
+    )) {
+      return Material(
+        color: Colors.transparent,
+        child: _ProductPlanner(
+          requestId: entry.request.id,
+          availability: availability,
+          busy: selectingProduct,
+          onSelectProduct: onSelectProduct,
+          onExcludeIngredient: onExcludeIngredient,
+          onShowRoute: onShowRoute,
+        ),
+      );
+    }
+
     final options = availability.options;
     final nowhere = availability.nowhere;
     return Column(
@@ -303,36 +324,6 @@ class _AvailabilitySummary extends StatelessWidget {
           text: availability.summaryFor(currentBranchId),
           positive: availability.hasFullRoute,
         ),
-        for (final item in availability.items)
-          if (item.productOptions.isNotEmpty ||
-              item.invalidSelectedBranches.isNotEmpty)
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text(
-                item.invalidSelectedBranches.isEmpty
-                    ? 'Opciones para ${item.name}'
-                    : 'El producto de ${item.name} ya no está disponible. Elige otro.',
-                style: _hint,
-              ),
-              children: [
-                for (final option in item.productOptions)
-                  ListTile(
-                    dense: true,
-                    title: Text(option.name),
-                    subtitle: Text(
-                      '${option.branchName}'
-                      ' · ${option.price.toStringAsFixed(2)} · ${option.unit}'
-                      '${option.isSubstitute ? ' · Reemplazo: ${option.ingredientName}' : ''}',
-                    ),
-                    trailing: option.selected
-                        ? const Icon(Icons.check_circle, color: AppTheme.green)
-                        : const Icon(Icons.add_circle_outline),
-                    onTap: selectingProduct || option.selected
-                        ? null
-                        : () => onSelectProduct(item.itemId, option),
-                  ),
-              ],
-            ),
         if (nowhere.isNotEmpty) ...[
           const SizedBox(height: 10),
           _MissingProducts(items: nowhere),
@@ -359,6 +350,171 @@ class _AvailabilitySummary extends StatelessWidget {
                 onTap: () => onShowRoute(route),
               ),
             ),
+      ],
+    );
+  }
+}
+
+class _ProductPlanner extends StatefulWidget {
+  const _ProductPlanner({
+    required this.requestId,
+    required this.availability,
+    required this.busy,
+    required this.onSelectProduct,
+    required this.onExcludeIngredient,
+    required this.onShowRoute,
+  });
+
+  final int requestId;
+  final RecipeAvailability availability;
+  final bool busy;
+  final void Function(int, IngredientProductOption) onSelectProduct;
+  final void Function(int, bool) onExcludeIngredient;
+  final ValueChanged<ShoppingRoute> onShowRoute;
+
+  @override
+  State<_ProductPlanner> createState() => _ProductPlannerState();
+}
+
+class _ProductPlannerState extends State<_ProductPlanner> {
+  int? _branchId;
+
+  @override
+  Widget build(BuildContext context) {
+    final availability = widget.availability;
+    final branches = <int, String>{
+      for (final route in availability.routes) route.branchId: route.branchName,
+      for (final item in availability.items)
+        for (final option in item.productOptions)
+          option.branchId: option.branchName,
+    };
+    final branchId = branches.containsKey(_branchId)
+        ? _branchId
+        : availability.routes.firstOrNull?.branchId ??
+              branches.keys.firstOrNull;
+    final route = availability.routes
+        .where((route) => route.branchId == branchId)
+        .firstOrNull;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (branchId != null) ...[
+          const Text('Supermercado sugerido', style: _hint),
+          DropdownButton<int>(
+            isExpanded: true,
+            value: branchId,
+            items: [
+              for (final branch in branches.entries)
+                DropdownMenuItem(value: branch.key, child: Text(branch.value)),
+            ],
+            onChanged: widget.busy
+                ? null
+                : (value) => setState(() => _branchId = value),
+          ),
+          if (route != null)
+            Text(
+              '${route.stops.length} ingredientes seleccionados',
+              style: _hint,
+            ),
+        ],
+        const Text(
+          'Revisa los productos y sus etiquetas: sus atributos no están verificados.',
+          style: _hint,
+        ),
+        ExpansionTile(
+          key: PageStorageKey('products-${widget.requestId}'),
+          tilePadding: EdgeInsets.zero,
+          title: const Text('Revisar productos'),
+          subtitle: const Text(
+            'Cambia o quita ingredientes de la compra',
+            style: _hint,
+          ),
+          children: [
+            for (final item in availability.items)
+              Builder(
+                builder: (context) {
+                  final options = item.productOptions
+                      .where((option) => option.branchId == branchId)
+                      .toList();
+                  final selectedId = route?.stops
+                      .where((stop) => stop.itemId == item.itemId)
+                      .firstOrNull
+                      ?.productId;
+                  final selected = options
+                      .where((option) => option.productId == selectedId)
+                      .firstOrNull;
+                  return ExpansionTile(
+                    key: PageStorageKey(
+                      'product-${widget.requestId}-${item.itemId}',
+                    ),
+                    tilePadding: EdgeInsets.zero,
+                    leading: Checkbox(
+                      value: !item.excluded,
+                      onChanged: widget.busy
+                          ? null
+                          : (value) => widget.onExcludeIngredient(
+                              item.itemId,
+                              value != true,
+                            ),
+                    ),
+                    title: Text(item.name),
+                    subtitle: Text(
+                      item.excluded
+                          ? 'Excluido de la compra'
+                          : selected == null
+                          ? options.isEmpty
+                                ? 'Sin producto disponible en esta sucursal'
+                                : 'Sin sugerencia: revisa las opciones'
+                          : '${selected.name} · ${selected.price.toStringAsFixed(2)} · ${selected.unit}',
+                      style: _hint,
+                    ),
+                    children: [
+                      for (final option in options)
+                        ListTile(
+                          dense: true,
+                          title: Text(option.name),
+                          subtitle: Text(
+                            '${option.price.toStringAsFixed(2)} · ${option.unit}'
+                            '${option.isSubstitute ? ' · Reemplazo: ${option.ingredientName}' : ''}',
+                          ),
+                          trailing:
+                              !item.excluded && option.productId == selectedId
+                              ? const Icon(
+                                  Icons.check_circle,
+                                  color: AppTheme.green,
+                                )
+                              : const Icon(Icons.radio_button_unchecked),
+                          onTap: widget.busy
+                              ? null
+                              : () {
+                                  if (!item.excluded &&
+                                      option.productId == selectedId) {
+                                    widget.onExcludeIngredient(
+                                      item.itemId,
+                                      true,
+                                    );
+                                  } else {
+                                    widget.onSelectProduct(item.itemId, option);
+                                  }
+                                },
+                        ),
+                    ],
+                  );
+                },
+              ),
+          ],
+        ),
+        if (route != null && route.missing.isNotEmpty)
+          Text('Sin seleccionar: ${route.missing.join(', ')}', style: _hint),
+        if (route != null) ...[
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: widget.busy ? null : () => widget.onShowRoute(route),
+            icon: const Icon(Icons.route),
+            label: const Text('Mostrar ruta'),
+          ),
+        ],
       ],
     );
   }

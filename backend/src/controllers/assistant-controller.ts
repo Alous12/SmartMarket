@@ -68,3 +68,13 @@ export const selectProduct: RequestHandler = async (request, response) => {
   );
   response.json({ data: availability });
 };
+
+export const setIngredientExcluded: RequestHandler = async (request, response) => {
+  const availability = await ingredientListService.setIngredientExcluded(
+    request.get('authorization'),
+    parseRequestId(request.params.requestId),
+    parseRequestId(request.params.itemId),
+    request.body,
+  );
+  response.json({ data: availability });
+};

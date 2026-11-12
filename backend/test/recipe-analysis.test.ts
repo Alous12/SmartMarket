@@ -120,5 +120,6 @@ test('the instruction limits the AI to recipes and lists the catalog', () => {
     'recipe_name',
     'ingredients',
     'message',
+    'preferences',
   ]);
 });
