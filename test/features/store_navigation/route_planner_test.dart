@@ -278,6 +278,49 @@ void main() {
     });
   });
 
+  test('al mover un estante, la ruta vuelve a elegir la distancia más corta', () {
+    final nodes = [
+      _node('inicio', 0, 0, ['b']),
+      _node('b', 2, 0, ['c']),
+      _node('c', 2, 2, ['destino']),
+      _node('destino', 4, 2),
+    ];
+    final products = [_product('producto', 'destino')];
+
+    StoreRoutePlan plan(FloorPlan floor) => const StoreRoutePlanner().plan(
+      routeNodes: nodes,
+      products: products,
+      startNodeId: 'inicio',
+      productIds: ['producto'],
+      floorPlan: floor,
+    );
+
+    // Solo cambia el plano del test: el estante bloquea primero el atajo
+    // diagonal y después se sitúa fuera del recorrido.
+    final before = plan(
+      _plan(columns: 7, rows: 6, blocked: const {(3, 2)}),
+    );
+    final after = plan(
+      _plan(columns: 7, rows: 6, blocked: const {(5, 5)}),
+    );
+
+    expect(before.distance, greaterThan(after.distance));
+    expect(after.nodeIds, ['inicio', 'destino']);
+    expect(after.distance, closeTo(math.sqrt(20), 1e-9));
+    for (var i = 1; i < after.path.length; i++) {
+      expect(
+        _plan(columns: 7, rows: 6, blocked: const {(5, 5)})
+            .isClear(
+              after.path[i - 1].x,
+              after.path[i - 1].z,
+              after.path[i].x,
+              after.path[i].z,
+            ),
+        isTrue,
+      );
+    }
+  });
+
   group('Indicaciones paso a paso', () {
     // Hacia el este 10 m y luego hacia el sur (abajo del mapa) 5 m.
     final path = [_node('a', 0, 0), _node('b', 10, 0), _node('c', 10, 5)];

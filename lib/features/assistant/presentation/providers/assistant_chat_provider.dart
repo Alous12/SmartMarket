@@ -120,7 +120,8 @@ class AssistantChatNotifier extends Notifier<AssistantChatState> {
       if (token != _sessionToken) return;
       _replace(AssistantChatEntry(request: current));
     }
-    if (current.status == AssistantRequestStatus.completed) {
+    if (current.status == AssistantRequestStatus.completed &&
+        !current.isGeneralAnswer) {
       await _loadAvailability(token, current);
     }
     if (token == _sessionToken) _setSending(false);

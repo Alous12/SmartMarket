@@ -7,7 +7,16 @@ import { defaultGeminiModel, generateJson } from '../src/services/ai/gemini-prov
 const input = {
   systemInstruction: 'Solo recetas.',
   userText: 'Quiero preparar lasaña',
-  responseSchema: { type: 'OBJECT' },
+  responseSchema: {
+    type: 'OBJECT',
+    additionalProperties: false,
+    properties: {
+      nested: {
+        type: 'OBJECT',
+        additionalProperties: false,
+      },
+    },
+  },
 };
 
 function geminiReply(body: unknown, status = 200): typeof fetch {
@@ -64,7 +73,10 @@ test('HU-14 CC1 y CC2: sends the user text unchanged with the instruction and sc
   ]);
   assert.deepEqual(body.systemInstruction, { parts: [{ text: 'Solo recetas.' }] });
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
-  assert.deepEqual(body.generationConfig.responseSchema, { type: 'OBJECT' });
+  assert.deepEqual(body.generationConfig.responseSchema, {
+    type: 'OBJECT',
+    properties: { nested: { type: 'OBJECT' } },
+  });
 });
 
 test('uses GEMINI_MODEL when it is configured', async () => {

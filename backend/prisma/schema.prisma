@@ -14,7 +14,7 @@ model assistant_requests {
   prompt           String                    @db.Text
   status           assistant_requests_status @default(RECEIVED)
   recipe_name      String?                   @db.VarChar(150)
-  response_message String?                   @db.VarChar(500)
+  response_message String?                   @db.Text
   recommendations_ready Boolean              @default(false)
   created_at       DateTime                  @default(now()) @db.Timestamp(0)
   updated_at       DateTime                  @default(now()) @db.Timestamp(0)

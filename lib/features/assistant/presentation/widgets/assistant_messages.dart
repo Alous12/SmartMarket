@@ -99,25 +99,32 @@ class AssistantReply extends StatelessWidget {
       AssistantRequestStatus.completed => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            recipeName ?? 'Receta',
-            style: const TextStyle(
-              color: AppTheme.ink,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+          if (request.isGeneralAnswer)
+            Text(
+              request.message!,
+              style: const TextStyle(color: AppTheme.ink, fontSize: 16),
             ),
-          ),
-          _IngredientList(ingredients: request.ingredients),
-          const SizedBox(height: 6),
-          _AvailabilitySummary(
-            entry: entry,
-            currentBranchId: currentBranchId,
-            onRetry: onRetryAvailability,
-            onShowRoute: onShowRoute,
-            onSelectProduct: onSelectProduct,
-            selectingProduct: selectingProduct,
-            onExcludeIngredient: onExcludeIngredient,
-          ),
+          if (!request.isGeneralAnswer) ...[
+            Text(
+              recipeName ?? 'Receta',
+              style: const TextStyle(
+                color: AppTheme.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            _IngredientList(ingredients: request.ingredients),
+            const SizedBox(height: 6),
+            _AvailabilitySummary(
+              entry: entry,
+              currentBranchId: currentBranchId,
+              onRetry: onRetryAvailability,
+              onShowRoute: onShowRoute,
+              onSelectProduct: onSelectProduct,
+              selectingProduct: selectingProduct,
+              onExcludeIngredient: onExcludeIngredient,
+            ),
+          ],
         ],
       ),
       AssistantRequestStatus.rejected || AssistantRequestStatus.failed => Row(

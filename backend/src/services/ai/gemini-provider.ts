@@ -18,6 +18,16 @@ interface GeminiResponse {
   }>;
 }
 
+function geminiSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(geminiSchema);
+  if (typeof value !== 'object' || value === null) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== 'additionalProperties') result[key] = geminiSchema(entry);
+  }
+  return result;
+}
+
 function errorForStatus(status: number, body: string): AiServiceError {
   const detail = `Gemini respondió ${status}: ${body.slice(0, 300)}`;
   if (status === 429) {
@@ -74,7 +84,7 @@ export async function generateJson(
               temperature: 0.2,
               maxOutputTokens: 4096,
               responseMimeType: 'application/json',
-              responseSchema: input.responseSchema,
+              responseSchema: geminiSchema(input.responseSchema),
             },
           }),
           signal: AbortSignal.timeout(timeoutMs),

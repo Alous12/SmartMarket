@@ -89,6 +89,11 @@ class AssistantRequest {
       status == AssistantRequestStatus.rejected ||
       status == AssistantRequestStatus.failed;
 
+  bool get isGeneralAnswer =>
+      status == AssistantRequestStatus.completed &&
+      recipeName == null &&
+      message != null;
+
   factory AssistantRequest.fromJson(Map<String, dynamic> json) {
     final ingredients = json['ingredients'] as List? ?? const [];
     return AssistantRequest(

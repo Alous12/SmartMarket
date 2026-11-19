@@ -22,6 +22,10 @@ class OpenUsersAction extends MapAction {
   const OpenUsersAction();
 }
 
+class OpenStaffAction extends MapAction {
+  const OpenStaffAction();
+}
+
 class ToggleEditAction extends MapAction {
   const ToggleEditAction();
 }
@@ -162,6 +166,13 @@ class MapOptionsSheet extends StatelessWidget {
                 title: const Text('Usuarios'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.pop(context, const OpenUsersAction()),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.inventory_outlined),
+                title: const Text('Panel de administración'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, const OpenStaffAction()),
               ),
             ],
           ],

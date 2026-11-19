@@ -6,9 +6,11 @@ import type {
   RecipeHistoryEntry,
 } from '../models/assistant-request.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
+import * as catalogRepository from '../repositories/catalog-repository.js';
 import * as choiceRepository from '../repositories/assistant-choice-repository.js';
 import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
+import * as productRepository from '../repositories/product-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
 import { AiServiceError } from './ai/ai-error.js';
 import { recommendProducts } from './ai/product-recommendations.js';
@@ -28,6 +30,11 @@ import { getIdentity } from './auth-service.js';
 import { generateIngredientList } from './ingredient-list-service.js';
 import { buildIngredientAvailability } from './ingredient-availability.js';
 import { latestPerRecipe } from './recipe-history.js';
+import {
+  buildAdminAssistantInstruction,
+  parseAdminAssistantResponse,
+  adminAssistantResponseSchema,
+} from './ai/admin-assistant.js';
 
 /**
  * Recibe la petición del usuario, la guarda tal cual junto con la sucursal
@@ -46,18 +53,32 @@ export async function submitRequest(
     if (error instanceof AiServiceError) throw new HttpError(400, error.userMessage);
     throw error;
   }
-  if (branchId !== null && !(await branchRepository.isActive(branchId))) {
+  const assignedBranchId = identity.role === 'admin'
+    ? await productRepository.findAdminBranch(identity.userId)
+    : null;
+  if (identity.role === 'admin' && assignedBranchId === null) {
+    throw new HttpError(403, 'Tu usuario no tiene una sucursal asignada.');
+  }
+  if (identity.role === 'admin' && branchId !== null && branchId !== assignedBranchId) {
+    throw new HttpError(403, 'Solo puedes consultar tu sucursal asignada.');
+  }
+  if (
+    identity.role !== 'admin' &&
+    branchId !== null &&
+    !(await branchRepository.isActive(branchId))
+  ) {
     throw new HttpError(400, 'branch_id no corresponde a una sucursal activa.');
   }
+  const effectiveBranchId = assignedBranchId ?? branchId;
   const received = await assistantRequestRepository.create({
     userId: identity.userId,
-    branchId,
+    branchId: effectiveBranchId,
     prompt,
   });
   const processing = await startProcessing(received);
   // La IA tarda unos segundos: se responde de inmediato y la app consulta el
   // resultado con getRequest. processRequest nunca lanza errores.
-  void processRequest(processing, model);
+  void processRequest(processing, model, identity.role === 'admin');
   return processing;
 }
 
@@ -124,12 +145,37 @@ async function analyzePrompt(prompt: string, model: AiModel): Promise<RecipeAnal
   return compact ? parseCompactRecipeAnalysis(output) : parseRecipeAnalysis(output);
 }
 
+async function answerAdminQuestion(
+  request: AssistantRequest,
+  model: AiModel,
+): Promise<string> {
+  if (request.branch_id === null) {
+    throw new HttpError(403, 'Tu usuario no tiene una sucursal asignada.');
+  }
+  const branch = await catalogRepository.findBranchById(request.branch_id);
+  if (!branch) throw new HttpError(404, 'Sucursal no encontrada.');
+  const products = await catalogRepository.findProductsByBranch(
+    request.branch_id,
+    {},
+  );
+  const output = await generateJson({
+    systemInstruction: buildAdminAssistantInstruction(branch, products),
+    userText: request.prompt,
+    responseSchema: adminAssistantResponseSchema,
+  }, model);
+  return parseAdminAssistantResponse(output);
+}
+
 /**
  * Procesa la petición en segundo plano y deja el resultado en la base de datos:
  * REJECTED si no es una receta, COMPLETED con la receta y su lista de
  * ingredientes (HU-16), o FAILED con un mensaje para el usuario.
  */
-export async function processRequest(request: AssistantRequest, model: AiModel): Promise<void> {
+export async function processRequest(
+  request: AssistantRequest,
+  model: AiModel,
+  adminMode = false,
+): Promise<void> {
   const save = (
     status: AssistantRequestStatus,
     recipeName: string | null,
@@ -146,6 +192,12 @@ export async function processRequest(request: AssistantRequest, model: AiModel):
     if (request.branch_id === null) {
       // Sin sucursal no se puede guardar la lista ni consultar el inventario.
       await save('FAILED', null, 'Elige un supermercado antes de pedir una receta.');
+      return;
+    }
+
+    if (adminMode) {
+      const answer = await answerAdminQuestion(request, model);
+      await save('COMPLETED', null, answer);
       return;
     }
 
