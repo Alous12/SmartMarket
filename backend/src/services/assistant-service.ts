@@ -39,6 +39,7 @@ import {
   parseAdminAssistantResponse,
   parseAdminAssistantQuery,
   adminAssistantResponseSchema,
+  enforceAdminIntent,
 } from './ai/admin-assistant.js';
 
 /**
@@ -164,13 +165,14 @@ async function answerAdminQuestion(
   const branch = await catalogRepository.findBranchById(request.branch_id);
   if (!branch) throw new HttpError(404, 'Sucursal no encontrada.');
   const categories = await catalogRepository.findCategories();
-  const queryOutput = await generateJson({
+  // Primera etapa: la IA extrae intención; aún no recibe el inventario.
+  const parsedQuery = parseAdminAssistantQuery(await generateJson({
     systemInstruction: buildAdminAssistantQueryInstruction(categories),
     userText: request.prompt,
     responseSchema: adminAssistantQuerySchema,
-    maxOutputTokens: 512,
-  }, model);
-  const query = parseAdminAssistantQuery(queryOutput);
+    maxOutputTokens: 256,
+  }, model));
+  const query = enforceAdminIntent(request.prompt, parsedQuery);
   if (query.category) {
     const category = categories.find(
       (entry) => entry.name.localeCompare(
@@ -183,16 +185,40 @@ async function answerAdminQuestion(
     request.branch_id,
     query,
   );
+  // Segunda etapa: la IA recibe exclusivamente el resultado SQL filtrado y
+  // lo transforma en una explicación útil para el administrador.
   const output = await generateJson({
     systemInstruction: buildAdminAssistantInstruction(branch, query, inventory),
     userText: request.prompt,
     responseSchema: adminAssistantResponseSchema,
-    maxOutputTokens: 1200,
+    maxOutputTokens: 350,
   }, model);
   return {
     answer: parseAdminAssistantResponse(output),
     ...adminAnswerRows(inventory.products),
   };
+}
+
+/** El administrador continúa trabajando cuando su modelo elegido está caído. */
+export function adminFallbackModels(selected: AiModel): AiModel[] {
+  return [selected, ...availableModels().filter((model) => model.id !== selected.id)];
+}
+
+async function answerAdminQuestionWithFallback(
+  request: AssistantRequest,
+  selected: AiModel,
+): Promise<{ answer: string; rows?: AdminAnswerRow[] }> {
+  let lastError: unknown;
+  for (const model of adminFallbackModels(selected)) {
+    try {
+      return await answerAdminQuestion(request, model);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof AiServiceError) || !error.unavailable) throw error;
+      console.warn(`El modelo ${model.id} no está disponible para la consulta administrativa; se probará otro.`);
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -250,7 +276,7 @@ export async function processRequest(
     }
 
     if (adminMode) {
-      const { answer, rows } = await answerAdminQuestion(request, model);
+      const { answer, rows } = await answerAdminQuestionWithFallback(request, model);
       await assistantRequestRepository.saveAnalysis(request.request_id, {
         status: 'COMPLETED',
         recipeName: null,

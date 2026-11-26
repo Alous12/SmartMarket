@@ -5,6 +5,7 @@ import type { AdminInventoryResult, Branch, Category } from '../src/models/catal
 import {
   buildAdminAssistantInstruction,
   buildAdminAssistantQueryInstruction,
+  enforceAdminIntent,
   parseAdminAssistantQuery,
   parseAdminAssistantResponse,
 } from '../src/services/ai/admin-assistant.js';
@@ -91,8 +92,10 @@ test('el prompt de respuesta solo incluye el inventario filtrado', () => {
 
   assert.match(prompt, /Sucursal Centro \(ID 7\)/);
   assert.match(prompt, /"unidades":2/);
-  assert.match(prompt, /"name":"Leche"/);
+  assert.match(prompt, /"nombre":"Leche"/);
   assert.match(prompt, /"shelf":"B2"/);
+  assert.match(prompt, /viñetas que comiencen con «•»/);
+  assert.match(prompt, /Máximo 90 palabras/);
   assert.doesNotMatch(prompt, /Inventario actual|Sucursal Norte/);
 });
 
@@ -102,4 +105,10 @@ test('parsea respuestas naturales dinámicas', () => {
     'Leche: 2 unidades.',
   );
   assert.throws(() => parseAdminAssistantResponse({ answer: '' }));
+});
+
+test('protege la intención explícita de resumen para consultar todo el inventario', () => {
+  assert.deepEqual(enforceAdminIntent('Hazme un resumen del inventario', query), {
+    ...query, operation: 'count', stock: 'all', sort: 'value_desc', groupByCategory: true,
+  });
 });

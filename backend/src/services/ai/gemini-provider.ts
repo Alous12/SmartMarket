@@ -34,17 +34,21 @@ function errorForStatus(status: number, body: string): AiServiceError {
     return new AiServiceError(
       detail,
       'El asistente alcanzó su límite de consultas. Inténtalo en unos minutos.',
+      false,
+      true,
     );
   }
   if (status === 503) {
     return new AiServiceError(
       detail,
       'Gemini está saturado en este momento. Inténtalo más tarde o elige otro modelo.',
+      false,
+      true,
     );
   }
   if (status === 400 || status === 401 || status === 403 || status === 404) {
     // Clave inválida, modelo inexistente o petición mal formada: es configuración.
-    return new AiServiceError(detail, notConfiguredMessage);
+    return new AiServiceError(detail, notConfiguredMessage, false, true);
   }
   return new AiServiceError(detail);
 }
@@ -95,11 +99,15 @@ export async function generateJson(
         throw new AiServiceError(
           `Gemini superó el tiempo máximo de respuesta: ${error.message}`,
           'Gemini tardó demasiado en responder. Inténtalo de nuevo o elige otro modelo.',
+          false,
+          true,
         );
       }
       throw new AiServiceError(
         `No se pudo conectar con Gemini: ${error instanceof Error ? error.message : String(error)}`,
         'No se pudo conectar con Gemini. Verifica tu conexión e inténtalo de nuevo.',
+        false,
+        true,
       );
     }
   };

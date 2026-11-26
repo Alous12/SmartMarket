@@ -343,6 +343,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                               onOpenList: () => _openList(entry),
                               onShowRowsInMap: _showRowsInMap,
                               onUpdateStock: _updateStock,
+                              admin: isAdmin,
                             ),
                           ],
                         );

@@ -33,6 +33,8 @@ export async function generateOllamaJson(
     throw new AiServiceError(
       'Ollama ya está procesando otra petición.',
       'El modelo local está ocupado. Espera a que termine e inténtalo de nuevo.',
+      false,
+      true,
     );
   }
   processing = true;
@@ -76,11 +78,15 @@ async function requestOllamaJson(
       throw new AiServiceError(
         'Ollama superó el tiempo máximo de generación.',
         'El modelo local tardó demasiado. Intenta nuevamente o elige otro modelo.',
+        false,
+        true,
       );
     }
     throw new AiServiceError(
       `No se pudo conectar con Ollama: ${error instanceof Error ? error.message : String(error)}`,
       'No se pudo conectar con el modelo local. Verifica que Ollama esté activo.',
+      false,
+      true,
     );
   }
   if (!response.ok) {
@@ -88,6 +94,8 @@ async function requestOllamaJson(
     throw new AiServiceError(
       `Ollama respondió ${response.status}: ${body.slice(0, 300)}`,
       'El modelo local no está disponible. Verifica la configuración de Ollama.',
+      false,
+      true,
     );
   }
   let data: unknown;

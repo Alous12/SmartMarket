@@ -47,6 +47,32 @@ export const adminAssistantResponseSchema = {
   additionalProperties: false,
 } as const;
 
+/**
+ * Consultas frecuentes que no necesitan IA: se convierten directamente en
+ * filtros SQL. Esto evita invertir «más stock» con «stock bajo».
+ */
+export function enforceAdminIntent(prompt: string, query: AdminInventoryQuery): AdminInventoryQuery {
+  const text = prompt
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  // Protecciones semánticas para que una intención explícita no llegue a SQL
+  // invertida por el modelo. La intención igualmente proviene de la IA.
+  if (/resumen|vision general|estado (?:del |de )?inventario|inventario general|inventario completo/.test(text)) {
+    return { ...query, operation: 'count', stock: 'all', sort: 'value_desc', groupByCategory: true };
+  }
+  if (/productos?.{0,30}(mas|mayor(?:es)?).{0,20}stock|stock.{0,30}(mas|mayor|alto)/.test(text)) {
+    return { ...query, operation: 'list', stock: 'all', sort: 'stock_desc', groupByCategory: false };
+  }
+  if (/por agotarse|stock bajo|poco stock|bajo inventario/.test(text)) {
+    return { ...query, operation: 'list', stock: 'low', sort: 'stock_asc', groupByCategory: false };
+  }
+  if (/agotados?|sin stock|stock cero/.test(text)) {
+    return { ...query, operation: 'list', stock: 'out', sort: 'stock_asc', groupByCategory: false };
+  }
+  return query;
+}
+
 export function buildAdminAssistantQueryInstruction(categories: Category[]): string {
   return [
     'Extrae únicamente un filtro estructurado para consultar inventario.',
@@ -57,6 +83,8 @@ export function buildAdminAssistantQueryInstruction(categories: Category[]): str
     'sort usa stock_asc para los que se agotan primero y value_desc para mayor valor.',
     'Activa include_locations solo si preguntan dónde está el producto, sección, estante o ubicación.',
     'Activa group_by_category solo si solicitan comparación o resumen por categoría.',
+    'CRÍTICO: «más stock», «mayor stock» o «stock alto» significa stock=all y sort=stock_desc; nunca low u out.',
+    'CRÍTICO: «resumen del inventario» significa stock=all y group_by_category=true; no uses low salvo que lo pidan explícitamente.',
     'Usa como máximo 20 resultados salvo que pidan explícitamente más; nunca más de 30.',
     `Categorías válidas: ${categories.map((category) => category.name).join(', ')}.`,
     'Si la pregunta no indica una categoría, usa null.',
@@ -127,12 +155,29 @@ export function buildAdminAssistantInstruction(
       productos_con_stock_bajo: result.summary.lowStockProducts,
       productos_agotados: result.summary.outOfStockProducts,
     },
-    categorias: query.groupByCategory ? result.categories : [],
-    productos: result.products,
+    // Contexto mínimo para el análisis: IDs, SKU y marca no aportan a la
+    // redacción y las filas completas ya se conservan para la interfaz.
+    categorias: query.groupByCategory ? result.categories.map((category) => ({
+      categoria: category.category,
+      productos: category.products,
+      unidades: category.stock,
+      valor: category.value,
+    })) : [],
+    productos: result.products.map((product) => ({
+      nombre: product.name,
+      categoria: product.category,
+      unidades: product.stock,
+      precio: product.price,
+      unidad: product.unit,
+      ...(query.includeLocations ? { ubicaciones: product.locations } : {}),
+    })),
   };
   return [
     'Eres el asistente operativo de SmartMarket para un dependiente de supermercado.',
     'Responde en español, de forma breve, clara y útil.',
+    'Haz que la respuesta sea agradable de leer: empieza con una frase directa y continúa con 1 a 4 viñetas que comiencen con «•».',
+    'Menciona primero lo más relevante (agotados o stock bajo) y, si aplica, termina con una sugerencia práctica basada solo en los datos.',
+    'Usa texto plano: sin Markdown, tablas, JSON ni títulos. Máximo 90 palabras.',
     'Solo puedes usar los datos JSON de la sucursal asignada incluidos abajo.',
     'No inventes ventas, demanda, fechas, productos ni atributos.',
     'Si no hay coincidencias, indícalo explícitamente.',
