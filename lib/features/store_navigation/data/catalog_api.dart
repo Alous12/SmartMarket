@@ -134,6 +134,48 @@ class CatalogApi {
     fallback: 'No se pudo guardar el producto.',
   );
 
+  /// Pone en el espacio un producto del inventario. Si ya estaba en otro
+  /// espacio se mueve (o se intercambia); si no, el que ocupaba el espacio vuelve
+  /// al inventario.
+  Future<void> assignToSlot(String slot, int productId) => _write(
+    'POST',
+    '/products/slots/${Uri.encodeComponent(slot)}/assign',
+    body: {'product_id': productId},
+    okStatus: {200},
+    fallback: 'No se pudo colocar el producto.',
+  );
+
+  /// Retira el producto del espacio: queda en el inventario con su stock.
+  Future<void> clearSlot(String slot) => _write(
+    'DELETE',
+    '/products/slots/${Uri.encodeComponent(slot)}/product',
+    okStatus: {200},
+    fallback: 'No se pudo enviar el producto al inventario.',
+  );
+
+  /// Crea un producto en la sucursal del admin. Con [slotCode] va a ese espacio
+  /// libre; sin él queda en el inventario, sin estante.
+  Future<void> createProduct(NewCatalogProduct product) => _write(
+    'POST',
+    '/products',
+    body: product.toJson(),
+    okStatus: {201},
+    fallback: 'No se pudo crear el producto.',
+  );
+
+  /// «Ya lo tengo»: descuenta del stock de la sucursal lo que tomó la persona.
+  Future<void> collectProduct(
+    int productId, {
+    required int branchId,
+    int quantity = 1,
+  }) => _write(
+    'POST',
+    '/products/$productId/collect',
+    body: {'branch_id': branchId, if (quantity != 1) 'quantity': quantity},
+    okStatus: {200},
+    fallback: 'No se pudo actualizar el stock.',
+  );
+
   /// Categorías disponibles para productos nuevos (id -> nombre).
   Future<Map<int, String>> loadCategories() async {
     final options = await _get('/products/options') as Map<String, dynamic>;
@@ -171,6 +213,7 @@ class CatalogApi {
         ),
     };
     return CatalogSnapshot(
+      branchId: branchId,
       bySku: bySku,
       byId: {for (final p in bySku.values) p.productId: p},
       slots: {
@@ -192,11 +235,59 @@ class CatalogSnapshot {
     required this.bySku,
     required this.byId,
     required this.slots,
+    this.branchId,
   });
+
+  final int? branchId;
 
   final Map<String, CatalogProduct> bySku;
   final Map<int, CatalogProduct> byId;
 
   /// Código de espacio (slot_id del modelo) -> producto que lo ocupa, o null si está libre.
   final Map<String, int?> slots;
+}
+
+/// Datos de un producto nuevo para `POST /products`.
+class NewCatalogProduct {
+  const NewCatalogProduct({
+    required this.name,
+    required this.price,
+    required this.stock,
+    required this.categoryId,
+    this.unitOfMeasure = 'unidad',
+    this.brand,
+    this.description,
+    this.sku,
+    this.slotCode,
+  });
+
+  final String name;
+  final double price;
+  final double stock;
+  final int categoryId;
+  final String unitOfMeasure;
+  final String? brand;
+  final String? description;
+
+  /// Sin sku el backend genera uno.
+  final String? sku;
+
+  /// Espacio libre del plano donde va el producto (null: solo inventario).
+  final String? slotCode;
+
+  Map<String, Object?> toJson() {
+    String? clean(String? value) =>
+        value == null || value.trim().isEmpty ? null : value.trim();
+    return {
+      'name': name.trim(),
+      'price': price,
+      'stock_quantity': stock,
+      'category_id': categoryId,
+      'unit_of_measure': unitOfMeasure,
+      'brand': ?clean(brand),
+      'description': ?clean(description),
+      'sku': ?clean(sku),
+      'slot_code': ?clean(slotCode),
+    };
+  }
 }

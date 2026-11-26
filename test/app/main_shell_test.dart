@@ -172,7 +172,9 @@ void main() {
     await _closeApp(tester);
   });
 
-  testWidgets('el admin solo ve su sucursal, sin selector', (tester) async {
+  testWidgets('el admin ve el plano 2D de su sucursal, sin selector ni 3D', (
+    tester,
+  ) async {
     await _pumpApp(
       tester,
       session: AuthSession(
@@ -184,20 +186,24 @@ void main() {
     );
 
     expect(find.byType(StoreSegments), findsNothing);
-    expect(find.text('Panel administrador'), findsOneWidget);
-    expect(find.text('Editar tienda'), findsOneWidget);
+    expect(find.byType(SupermarketViewport), findsNothing);
+    expect(find.text('PLANO DE LA TIENDA'), findsOneWidget);
+    expect(find.text('SmartMarket Piloto'), findsOneWidget);
+    expect(find.text('Crear producto'), findsOneWidget);
 
-    await tester.tap(find.text('Editar tienda'));
-    await tester.pump();
-
-    expect(find.text('Editando el supermercado'), findsOneWidget);
-    expect(find.text('2D'), findsOneWidget);
     await _openTab(tester, 'Productos');
 
     expect(find.text('Resumen del inventario'), findsOneWidget);
     expect(find.text('Prioridad de reposición'), findsOneWidget);
     expect(find.byType(StoreSegments), findsNothing);
     expect(find.text('Leche de SuperMarket'), findsOneWidget);
+    expect(find.text('Crear producto'), findsOneWidget);
+
+    // «Editar estantes» vuelve al plano.
+    await tester.tap(find.text('Editar estantes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('PLANO DE LA TIENDA'), findsOneWidget);
     await _closeApp(tester);
   });
 

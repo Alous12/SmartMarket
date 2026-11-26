@@ -64,6 +64,8 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
   final routeNodes = <String, StoreRouteNode>{};
   final productIds = <String>{};
   final products = <String, StoreProduct>{};
+  // Estante de cada espacio (slot_id -> shelf_id), de los nodos product_location.
+  final slotShelves = <String, String>{};
   // Muebles y paredes para el plano del piso (sin cajas ni etiquetas).
   final obstacleMeshes = <(int, List<double>)>[];
   for (final index in activeNodes) {
@@ -83,6 +85,11 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
           neighbors: List.unmodifiable(_readNeighbors(extras['vecinos'])),
         ),
       );
+    }
+    if (extras['kind'] == 'product_location' &&
+        extras['slot_id'] != null &&
+        extras['shelf_id'] != null) {
+      slotShelves['${extras['slot_id']}'] = '${extras['shelf_id']}';
     }
     if (extras['kind'] == 'product_group' && extras['product_id'] is String) {
       final id = extras['product_id'] as String;
@@ -144,7 +151,21 @@ StoreModelMetadata readGlbMetadata(Uint8List bytes) {
     routeNodeIds: List.unmodifiable(routeIds),
     routeNodes: List.unmodifiable(resolvedRouteNodes),
     productIds: List.unmodifiable(productIds),
-    products: List.unmodifiable(products.values),
+    products: List.unmodifiable([
+      for (final product in products.values)
+        slotShelves[product.slotId] == null
+            ? product
+            : StoreProduct(
+                id: product.id,
+                name: product.name,
+                category: product.category,
+                routeNode: product.routeNode,
+                slotId: product.slotId,
+                shelfId: slotShelves[product.slotId],
+                x: product.x,
+                z: product.z,
+              ),
+    ]),
     floorPlan: floorPlan,
   );
 }

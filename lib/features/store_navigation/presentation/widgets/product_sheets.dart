@@ -175,6 +175,9 @@ class ProductListView extends ConsumerStatefulWidget {
     this.onEditStore,
     this.onAskAssistant,
     this.onOpenUsers,
+    this.unplaced = const [],
+    this.onCreateProduct,
+    this.onPlace,
   });
 
   final Supermarket store;
@@ -192,13 +195,49 @@ class ProductListView extends ConsumerStatefulWidget {
   /// Admin: gestión de usuarios.
   final VoidCallback? onOpenUsers;
 
+  /// Admin: productos del inventario que no están en ningún estante.
+  final List<StoreProduct> unplaced;
+
+  /// Admin: «Crear producto».
+  final VoidCallback? onCreateProduct;
+
+  /// Admin: poner en un estante un producto de [unplaced].
+  final ValueChanged<StoreProduct>? onPlace;
+
   @override
   ConsumerState<ProductListView> createState() => _ProductListViewState();
+}
+
+/// Filtro por estado del inventario (solo admin).
+enum _StockFilter {
+  all('Todos'),
+  low('Por agotarse'),
+  out('Agotados'),
+  unplaced('Sin estante');
+
+  const _StockFilter(this.label);
+
+  final String label;
+}
+
+/// Orden de la lista del admin.
+enum _AdminSort {
+  name('Nombre (A-Z)'),
+  stockAsc('Menos stock primero'),
+  stockDesc('Más stock primero'),
+  priceAsc('Precio: menor a mayor'),
+  priceDesc('Precio: mayor a menor');
+
+  const _AdminSort(this.label);
+
+  final String label;
 }
 
 class _ProductListViewState extends ConsumerState<ProductListView> {
   String _query = '';
   String? _category;
+  _StockFilter _stock = _StockFilter.all;
+  _AdminSort _sort = _AdminSort.name;
 
   @override
   Widget build(BuildContext context) {
@@ -313,23 +352,63 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
     Map<String, String> names,
     bool Function(StoreProduct) matches,
   ) {
-    final stocked = widget.products.where((p) => p.stock != null).toList();
+    // Todo el inventario: lo que está en estantes y lo que espera sin estante.
+    final unplacedIds = {for (final p in widget.unplaced) p.id};
+    final inventory = [...widget.products, ...widget.unplaced];
+    final stocked = inventory.where((p) => p.stock != null).toList();
+    final categories =
+        inventory
+            .map((product) => product.category)
+            .where((category) => category.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     final searching = _query.trim().isNotEmpty;
-    final attention = searching
+    final filtering =
+        searching || _stock != _StockFilter.all || _category != null;
+    final attention = filtering
         ? const <StoreProduct>[]
         : (stocked.where((p) => p.stock! <= 5).toList()
             ..sort((a, b) => a.stock!.compareTo(b.stock!)));
+    bool passes(StoreProduct product) {
+      if (_category != null && product.category != _category) return false;
+      final stock = product.stock;
+      return switch (_stock) {
+        _StockFilter.all => true,
+        _StockFilter.low => stock != null && stock > 0 && stock <= 5,
+        _StockFilter.out => stock != null && stock <= 0,
+        _StockFilter.unplaced => unplacedIds.contains(product.id),
+      };
+    }
+
+    String sortName(StoreProduct p) => (names[p.id] ?? p.name).toLowerCase();
+    int compare(StoreProduct a, StoreProduct b) {
+      final byName = sortName(a).compareTo(sortName(b));
+      int by(double? x, double? y, {required bool ascending}) {
+        if (x == null || y == null) {
+          return x == y ? byName : (x == null ? 1 : -1);
+        }
+        final value = ascending ? x.compareTo(y) : y.compareTo(x);
+        return value != 0 ? value : byName;
+      }
+
+      return switch (_sort) {
+        _AdminSort.name => byName,
+        _AdminSort.stockAsc => by(a.stock, b.stock, ascending: true),
+        _AdminSort.stockDesc => by(a.stock, b.stock, ascending: false),
+        _AdminSort.priceAsc => by(a.price, b.price, ascending: true),
+        _AdminSort.priceDesc => by(a.price, b.price, ascending: false),
+      };
+    }
+
     // Cada producto aparece una sola vez: lo urgente arriba, el resto abajo.
     final all =
-        widget.products
+        inventory
             .where(matches)
+            .where(passes)
             .where((p) => !attention.contains(p))
             .toList()
-          ..sort(
-            (a, b) => (names[a.id] ?? a.name).toLowerCase().compareTo(
-              (names[b.id] ?? b.name).toLowerCase(),
-            ),
-          );
+          ..sort(compare);
     Widget heading(String title, String? subtitle, {Widget? trailing}) =>
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
@@ -362,6 +441,15 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
             ],
           ),
         );
+    void open(StoreProduct product) {
+      final place = widget.onPlace;
+      if (place != null && unplacedIds.contains(product.id)) {
+        place(product);
+      } else {
+        widget.onSelected(product);
+      }
+    }
+
     SliverPadding list(List<StoreProduct> rows) => SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 18),
       sliver: SliverList.separated(
@@ -372,7 +460,8 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
           child: _AdminProductRow(
             product: rows[index],
             name: names[rows[index].id] ?? rows[index].name,
-            onTap: () => widget.onSelected(rows[index]),
+            unplaced: unplacedIds.contains(rows[index].id),
+            onTap: () => open(rows[index]),
             onRename: () => widget.onRename(rows[index]),
           ),
         ),
@@ -393,12 +482,12 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
                   child: _InventorySummary(
-                    products: widget.products,
+                    products: inventory,
                     stocked: stocked,
                   ),
                 ),
               ),
-              if (!searching) ...[
+              if (!filtering) ...[
                 SliverToBoxAdapter(
                   child: heading(
                     'Requieren atención',
@@ -430,7 +519,7 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
                 else
                   list(attention),
               ],
-              if (stocked.isNotEmpty && !searching) ...[
+              if (stocked.isNotEmpty && !filtering) ...[
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
@@ -438,7 +527,7 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
                       icon: Icons.bar_chart_rounded,
                       title: 'Unidades por categoría',
                       subtitle: 'Stock disponible en la sucursal',
-                      child: StockByCategoryChart(products: widget.products),
+                      child: StockByCategoryChart(products: inventory),
                     ),
                   ),
                 ),
@@ -449,7 +538,7 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
                       icon: Icons.pie_chart_outline_rounded,
                       title: 'Valor del inventario',
                       subtitle: 'Precio × stock, por categoría',
-                      child: ValueByCategoryChart(products: widget.products),
+                      child: ValueByCategoryChart(products: inventory),
                     ),
                   ),
                 ),
@@ -462,23 +551,128 @@ class _ProductListViewState extends ConsumerState<ProductListView> {
                 child: _search('Buscar producto o SKU'),
               ),
               SliverToBoxAdapter(
-                child: heading(
-                  searching ? 'Resultados' : 'Con stock suficiente',
-                  '${all.length} ${all.length == 1 ? 'producto' : 'productos'}',
+                key: const ValueKey('admin-filters'),
+                child: SizedBox(
+                  height: 76,
+                  child: HorizontalScrollRow(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                    children: [
+                      for (final filter in _StockFilter.values) ...[
+                        if (filter != _StockFilter.all)
+                          const SizedBox(width: 10),
+                        PillChip(
+                          label: filter == _StockFilter.unplaced
+                              ? '${filter.label} (${widget.unplaced.length})'
+                              : filter.label,
+                          selected: _stock == filter,
+                          dark: true,
+                          onTap: () => setState(() => _stock = filter),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
+              if (categories.isNotEmpty)
+                SliverToBoxAdapter(
+                  key: const ValueKey('admin-categories'),
+                  child: SizedBox(
+                    height: 62,
+                    child: HorizontalScrollRow(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+                      children: [
+                        PillChip(
+                          label: 'Todas las categorías',
+                          selected: _category == null,
+                          onTap: () => setState(() => _category = null),
+                        ),
+                        for (final category in categories) ...[
+                          const SizedBox(width: 10),
+                          PillChip(
+                            label: category,
+                            selected: _category == category,
+                            onTap: () => setState(() => _category = category),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(
+                child: heading(
+                  filtering ? 'Resultados' : 'Con stock suficiente',
+                  '${all.length} ${all.length == 1 ? 'producto' : 'productos'}',
+                  trailing: PopupMenuButton<_AdminSort>(
+                    tooltip: 'Ordenar',
+                    initialValue: _sort,
+                    onSelected: (sort) => setState(() => _sort = sort),
+                    itemBuilder: (context) => [
+                      for (final sort in _AdminSort.values)
+                        PopupMenuItem(value: sort, child: Text(sort.label)),
+                    ],
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.sort_rounded, color: AppTheme.green),
+                          SizedBox(width: 6),
+                          Text(
+                            'Ordenar',
+                            style: TextStyle(
+                              color: AppTheme.green,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (all.isEmpty)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(18, 8, 18, 0),
+                    child: Text(
+                      'No hay productos con estos filtros.',
+                      style: TextStyle(color: AppTheme.muted, fontSize: 16),
+                    ),
+                  ),
+                ),
               list(all),
               const SliverToBoxAdapter(child: SizedBox(height: 18)),
             ],
           ),
         ),
-        if (widget.onEditStore != null)
+        if (widget.onCreateProduct != null || widget.onEditStore != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
-            child: SmPrimaryButton(
-              label: 'Editar tienda en el mapa',
-              icon: Icons.view_in_ar_outlined,
-              onPressed: widget.onEditStore,
+            child: Row(
+              children: [
+                if (widget.onEditStore != null)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onEditStore,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(58),
+                      ),
+                      icon: const Icon(Icons.grid_view_rounded),
+                      label: const Text('Editar estantes'),
+                    ),
+                  ),
+                if (widget.onEditStore != null &&
+                    widget.onCreateProduct != null)
+                  const SizedBox(width: 10),
+                if (widget.onCreateProduct != null)
+                  Expanded(
+                    child: SmPrimaryButton(
+                      label: 'Crear producto',
+                      icon: Icons.add_rounded,
+                      onPressed: widget.onCreateProduct,
+                    ),
+                  ),
+              ],
             ),
           ),
       ],
@@ -852,12 +1046,16 @@ class _AdminProductRow extends StatelessWidget {
     required this.name,
     required this.onTap,
     required this.onRename,
+    this.unplaced = false,
   });
 
   final StoreProduct product;
   final String name;
   final VoidCallback onTap;
   final VoidCallback onRename;
+
+  /// Está en el inventario pero en ningún estante.
+  final bool unplaced;
 
   @override
   Widget build(BuildContext context) {
@@ -891,17 +1089,31 @@ class _AdminProductRow extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      placeLabel(
-                        section: product.category.isEmpty
-                            ? product.section
-                            : product.category,
-                        shelf: product.shelf,
-                      ),
+                      unplaced
+                          ? [
+                              if (product.category.isNotEmpty) product.category,
+                              'Sin estante',
+                            ].join(' · ')
+                          : placeLabel(
+                              section: product.category.isEmpty
+                                  ? product.section
+                                  : product.category,
+                              shelf: product.shelf,
+                            ),
                       style: const TextStyle(
                         color: AppTheme.muted,
                         fontSize: 15,
                       ),
                     ),
+                    if (unplaced)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: StatusChip(
+                          label: 'Ponerlo en un estante',
+                          tone: StatusTone.neutral,
+                          icon: Icons.add_location_alt_outlined,
+                        ),
+                      ),
                   ],
                 ),
               ),

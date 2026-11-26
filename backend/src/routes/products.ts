@@ -69,6 +69,32 @@ const createInSlot: RequestHandler = async (request, response) => {
   });
 };
 
+const assignSlot: RequestHandler = async (request, response) => {
+  const code = String(request.params.slotCode ?? '');
+  response.json({
+    data: await productService.assignToSlot(
+      code,
+      request.body,
+      identityOf(response).userId,
+    ),
+  });
+};
+
+const unplaceSlot: RequestHandler = async (request, response) => {
+  const code = String(request.params.slotCode ?? '');
+  response.json({
+    data: await productService.unplaceSlot(code, identityOf(response).userId),
+  });
+};
+
+/** «Ya lo tengo» en una ruta: descuenta del stock lo que la persona tomó. */
+const collect: RequestHandler = async (request, response) => {
+  const productId = productService.parseProductId(request.params.productId);
+  response.json({
+    data: await productService.collectProduct(productId, request.body),
+  });
+};
+
 const update: RequestHandler = async (request, response) => {
   const productId = productService.parseProductId(request.params.productId);
   response.json({
@@ -85,7 +111,10 @@ productsRouter.get('/options', ...requireAdmin, options);
 productsRouter.get('/slots', authenticate, slots);
 productsRouter.post('/slots/move', ...requireAdmin, moveSlot);
 productsRouter.post('/slots/:slotCode/product', ...requireAdmin, createInSlot);
+productsRouter.delete('/slots/:slotCode/product', ...requireAdmin, unplaceSlot);
+productsRouter.post('/slots/:slotCode/assign', ...requireAdmin, assignSlot);
 productsRouter.post('/', ...requireAdmin, create);
+productsRouter.post('/:productId/collect', authenticate, collect);
 productsRouter.patch('/:productId', ...requireAdmin, update);
 productsRouter.patch('/:productId/location', ...requireAdmin, move);
 productsRouter.delete('/:productId', ...requireAdmin, remove);

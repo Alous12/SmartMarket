@@ -20,6 +20,7 @@ import 'package:smartmarket/features/store_navigation/domain/entities/store_mode
 import 'package:smartmarket/features/store_navigation/domain/repositories/store_model_repository.dart';
 import 'package:smartmarket/features/store_navigation/domain/services/yaw_tracker.dart';
 import 'package:smartmarket/features/store_navigation/presentation/providers/store_model_provider.dart';
+import 'package:smartmarket/features/store_navigation/presentation/screens/store_layout_screen.dart';
 import 'package:smartmarket/features/store_navigation/presentation/widgets/route_summary_card.dart';
 import 'package:smartmarket/features/store_navigation/presentation/widgets/supermarket_viewport.dart';
 
@@ -98,8 +99,14 @@ class _Repository implements StoreModelRepository {
   );
 }
 
+/// Escrituras que recibió el backend falso (método, ruta y cuerpo).
+final _writes = <(String, String, String)>[];
+
 /// Backend con el mismo producto en el espacio SLOT_1 de las dos sucursales.
 Future<http.Response> _backend(http.Request request) async {
+  if (request.method != 'GET') {
+    _writes.add((request.method, request.url.path, request.body));
+  }
   final Object data = switch (request.url.path) {
     '/api/branches' => [
       {'branch_id': 1, 'model_3d_url': Supermarket.natural.assetPath},
@@ -151,6 +158,7 @@ Future<ProviderContainer> _pumpApp(
   AuthSession session = _user,
   MotionSensors? sensors,
 }) async {
+  _writes.clear();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -471,15 +479,49 @@ void main() {
     await _closeApp(tester);
   });
 
-  testWidgets('un admin no pierde su mapa por una ruta de otra sucursal', (
+  testWidgets('«Ya lo tengo» descuenta una unidad del stock, una sola vez', (
+    tester,
+  ) async {
+    final container = await _pumpApp(tester);
+    await _sendRoute(tester, container);
+
+    await tester.tap(find.text('Ya lo tengo'));
+    await _settle(tester);
+
+    expect(_writes, [
+      ('POST', '/api/products/20/collect', jsonEncode({'branch_id': 2})),
+    ]);
+
+    // Repetir la ruta no vuelve a descontar lo que ya se llevó.
+    await tester.tap(find.text('Repetir ruta'));
+    await _settle(tester);
+    await tester.tap(find.text('Ya lo tengo'));
+    await _settle(tester);
+    expect(_writes, hasLength(1));
+    await _closeApp(tester);
+  });
+
+  testWidgets('«Saltar» no toca el stock', (tester) async {
+    final container = await _pumpApp(tester);
+    await _sendRoute(tester, container);
+
+    await tester.tap(find.text('Saltar'));
+    await _settle(tester);
+
+    expect(_writes, isEmpty);
+    await _closeApp(tester);
+  });
+
+  testWidgets('un admin no deja su plano por una ruta de otra sucursal', (
     tester,
   ) async {
     final container = await _pumpApp(tester, session: _admin);
-    final before = tester.state(find.byType(SupermarketViewport));
+    final before = tester.state(find.byType(StoreLayoutScreen));
 
     await _sendRoute(tester, container);
 
-    expect(tester.state(find.byType(SupermarketViewport)), same(before));
+    expect(tester.state(find.byType(StoreLayoutScreen)), same(before));
+    expect(find.byType(SupermarketViewport), findsNothing);
     expect(
       find.text('Tu cuenta solo puede ver Supermercado_1.'),
       findsOneWidget,

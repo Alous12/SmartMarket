@@ -63,6 +63,14 @@ class StartEditRequest extends MapRequest {
   const StartEditRequest();
 }
 
+/// El admin quiere colocar en un estante un producto del inventario (por su id
+/// en la base de datos). Lo atiende el plano 2D del admin.
+class PlaceProductRequest extends MapRequest {
+  const PlaceProductRequest(this.dbId);
+
+  final int dbId;
+}
+
 final mapRequestProvider = NotifierProvider<MapRequestNotifier, MapRequest?>(
   MapRequestNotifier.new,
 );
@@ -76,11 +84,33 @@ class MapRequestNotifier extends Notifier<MapRequest?> {
   void clear() => state = null;
 }
 
+/// Modelo leído del GLB de cada supermercado, para no volver a leerlo cada vez
+/// que cambian los datos de la base de datos (por ejemplo, tras editar un
+/// estante). Solo se conserva el del supermercado elegido; si la lectura falla,
+/// se descarta y el siguiente intento vuelve a cargar el archivo.
+final _storeAssetCacheProvider = Provider<Map<Supermarket, Future<StoreModel>>>(
+  (ref) {
+    ref.watch(storeModelRepositoryProvider);
+    return {};
+  },
+);
+
 /// Modelo 3D con los datos de producto (nombre, categoría, precio y stock)
 /// de la base de datos. Si el backend no responde, se usan los del modelo.
 final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
   final store = ref.watch(selectedStoreProvider);
-  final model = await ref.watch(storeModelRepositoryProvider).load(store);
+  final cache = ref.watch(_storeAssetCacheProvider)
+    ..removeWhere((cached, _) => cached != store);
+  final StoreModel model;
+  final pending = cache[store] ??= ref
+      .read(storeModelRepositoryProvider)
+      .load(store);
+  try {
+    model = await pending;
+  } on Object {
+    if (identical(cache[store], pending)) cache.remove(store);
+    rethrow;
+  }
   final CatalogSnapshot catalog;
   try {
     catalog = await ref.watch(catalogApiProvider).loadSnapshot(store.assetPath);
@@ -89,6 +119,7 @@ final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
   }
   final products = <StoreProduct>[];
   final empty = <StoreProduct>[];
+  final placed = <int>{};
   for (final product in model.metadata.products) {
     // Sin espacios cargados en la BD se empareja por sku, como antes.
     final data = catalog.slots.isEmpty
@@ -101,6 +132,7 @@ final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
       if (catalog.slots.containsKey(product.slotId)) empty.add(product);
       continue;
     }
+    placed.add(data.productId);
     products.add(
       product.copyWith(
         name: data.name,
@@ -113,12 +145,26 @@ final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
       ),
     );
   }
+  final unplaced = [
+    for (final data in catalog.byId.values)
+      if (!placed.contains(data.productId))
+        StoreProduct(
+          id: 'db:${data.productId}',
+          name: data.name,
+          category: data.category,
+          price: data.price,
+          stock: data.stock,
+          dbId: data.productId,
+        ),
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   return StoreModel(
     store: model.store,
     bytes: model.bytes,
     metadata: model.metadata.withProducts(products),
     fromCatalog: true,
     emptySlots: empty,
+    unplaced: unplaced,
+    branchId: catalog.branchId,
   );
 }, retry: (count, error) => null);
 
