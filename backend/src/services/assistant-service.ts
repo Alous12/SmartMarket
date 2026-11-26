@@ -1,10 +1,12 @@
 import { HttpError } from '../middlewares/http-error.js';
 import type {
+  AdminAnswerRow,
   AssistantRequest,
   AssistantRequestDetail,
   AssistantRequestStatus,
   RecipeHistoryEntry,
 } from '../models/assistant-request.js';
+import type { AdminInventoryProduct } from '../models/catalog.js';
 import * as assistantRequestRepository from '../repositories/assistant-request-repository.js';
 import * as catalogRepository from '../repositories/catalog-repository.js';
 import * as choiceRepository from '../repositories/assistant-choice-repository.js';
@@ -155,7 +157,7 @@ async function analyzePrompt(prompt: string, model: AiModel): Promise<RecipeAnal
 async function answerAdminQuestion(
   request: AssistantRequest,
   model: AiModel,
-): Promise<string> {
+): Promise<{ answer: string; rows?: AdminAnswerRow[] }> {
   if (request.branch_id === null) {
     throw new HttpError(403, 'Tu usuario no tiene una sucursal asignada.');
   }
@@ -187,8 +189,36 @@ async function answerAdminQuestion(
     responseSchema: adminAssistantResponseSchema,
     maxOutputTokens: 1200,
   }, model);
-  return parseAdminAssistantResponse(output);
+  return {
+    answer: parseAdminAssistantResponse(output),
+    ...adminAnswerRows(inventory.products),
+  };
 }
+
+/**
+ * Barras de stock de la respuesta: los mismos productos de la consulta real
+ * que recibió la IA. Sin productos (conteos o resúmenes por categoría), no hay filas.
+ */
+export function adminAnswerRows(
+  products: AdminInventoryProduct[],
+): { rows?: AdminAnswerRow[] } {
+  const rows = products.flatMap((product) =>
+    product.product_id === undefined
+      ? []
+      : [{
+          product_id: product.product_id,
+          name: product.name,
+          stock: product.stock,
+          status: product.stock <= 0 ? 'out' as const
+            : product.stock <= lowStockThreshold ? 'low' as const
+            : 'ok' as const,
+        }],
+  );
+  return rows.length === 0 ? {} : { rows };
+}
+
+/** Mismo umbral que el inventario usa para «por agotarse». */
+const lowStockThreshold = 5;
 
 /**
  * Procesa la petición en segundo plano y deja el resultado en la base de datos:
@@ -220,8 +250,13 @@ export async function processRequest(
     }
 
     if (adminMode) {
-      const answer = await answerAdminQuestion(request, model);
-      await save('COMPLETED', null, answer);
+      const { answer, rows } = await answerAdminQuestion(request, model);
+      await assistantRequestRepository.saveAnalysis(request.request_id, {
+        status: 'COMPLETED',
+        recipeName: null,
+        message: answer,
+        rows,
+      });
       return;
     }
 

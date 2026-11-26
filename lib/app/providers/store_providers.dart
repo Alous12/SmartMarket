@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
-import '../../features/auth/data/auth_api.dart' show PreferencesAuthTokenStorage;
+import '../../features/auth/data/auth_api.dart'
+    show PreferencesAuthTokenStorage;
 import '../../features/store_navigation/data/catalog_api.dart';
 import '../../features/store_navigation/data/repositories/asset_store_model_repository.dart';
 import '../../features/users/data/user_api.dart' show apiBaseUrl;

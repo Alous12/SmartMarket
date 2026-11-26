@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/empty_or_error_state.dart';
+import '../../../../core/widgets/skeleton_box.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
 import '../providers/store_model_provider.dart';
-import '../widgets/map_widgets.dart';
 import '../widgets/product_sheets.dart';
 
 /// Productos de la sucursal elegida. Tocar uno lo señala en el mapa 3D.
@@ -14,6 +16,12 @@ class ProductsScreen extends ConsumerWidget {
 
   void _showInMap(BuildContext context, WidgetRef ref, StoreProduct product) {
     ref.read(mapRequestProvider.notifier).send(FocusProductRequest(product.id));
+    context.goNamed('supermarket');
+  }
+
+  /// Abre el mapa directamente en «Editar tienda».
+  void _editStore(BuildContext context, WidgetRef ref) {
+    ref.read(mapRequestProvider.notifier).send(const StartEditRequest());
     context.goNamed('supermarket');
   }
 
@@ -36,37 +44,99 @@ class ProductsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final model = ref.watch(storeModelProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Productos',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: model.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppTheme.green),
-        ),
-        error: (error, stack) => CenteredMessage(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('No se pudieron cargar los productos.'),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => ref.invalidate(storeModelProvider),
-                child: const Text('Reintentar'),
-              ),
-            ],
-          ),
+    final isAdmin =
+        ref.watch(authControllerProvider).asData?.value?.isAdmin ?? false;
+    final body = AnimatedSwitcher(
+      duration: AppTheme.motion(context, AppTheme.medium),
+      child: model.when(
+        loading: () => const _ProductsSkeleton(key: ValueKey('loading')),
+        error: (error, stack) => EmptyOrErrorState(
+          key: const ValueKey('error'),
+          title: 'No se pudieron cargar los productos.',
+          message:
+              'Revisa tu conexión o que el servidor esté encendido e inténtalo otra vez.',
+          onRetry: () => ref.invalidate(storeModelProvider),
         ),
         data: (model) => ProductListView(
+          key: const ValueKey('data'),
           store: model.store,
           products: model.metadata.products,
+          admin: isAdmin,
+          onEditStore: isAdmin ? () => _editStore(context, ref) : null,
+          onAskAssistant: isAdmin ? () => context.goNamed('assistant') : null,
+          onOpenUsers: isAdmin ? () => context.pushNamed('users') : null,
           onSelected: (product) => _showInMap(context, ref, product),
           onRename: (product) => _rename(context, ref, product),
         ),
       ),
+    );
+    // El admin tiene su cabecera oscura; el cliente, el título grande.
+    if (isAdmin && model.hasValue) return Scaffold(body: body);
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 20, 18, 16),
+              child: Semantics(
+                header: true,
+                child: const Text(
+                  'Productos',
+                  style: TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.7,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(child: body),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductsSkeleton extends StatelessWidget {
+  const _ProductsSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      children: [
+        const SkeletonBox(height: 62, radius: AppTheme.radiusL),
+        const SizedBox(height: 16),
+        const Row(
+          children: [
+            SkeletonBox(width: 74, height: 48, radius: 24),
+            SizedBox(width: 10),
+            SkeletonBox(width: 96, height: 48, radius: 24),
+            SizedBox(width: 10),
+            SkeletonBox(width: 86, height: 48, radius: 24),
+          ],
+        ),
+        const SizedBox(height: 16),
+        for (var row = 0; row < 3; row++) ...[
+          const Row(
+            children: [
+              Expanded(
+                child: SkeletonBox(height: 236, radius: AppTheme.radiusXL),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: SkeletonBox(height: 236, radius: AppTheme.radiusXL),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
+      ],
     );
   }
 }

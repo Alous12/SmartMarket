@@ -62,6 +62,35 @@ class RecipeHistoryEntry {
 }
 
 /// Petición escrita por el usuario y guardada por el backend.
+/// Estado de stock de un producto en la respuesta del admin.
+enum StockLevel { out, low, ok }
+
+/// Producto con su stock que acompaña la respuesta del asistente del admin.
+class AdminAnswerRow {
+  const AdminAnswerRow({
+    required this.productId,
+    required this.name,
+    required this.stock,
+    required this.level,
+  });
+
+  final int productId;
+  final String name;
+  final double stock;
+  final StockLevel level;
+
+  factory AdminAnswerRow.fromJson(Map<String, dynamic> json) => AdminAnswerRow(
+    productId: (json['product_id'] as num).toInt(),
+    name: json['name'] as String,
+    stock: (json['stock'] as num).toDouble(),
+    level: switch (json['status']) {
+      'out' => StockLevel.out,
+      'low' => StockLevel.low,
+      _ => StockLevel.ok,
+    },
+  );
+}
+
 class AssistantRequest {
   const AssistantRequest({
     required this.id,
@@ -70,6 +99,7 @@ class AssistantRequest {
     this.recipeName,
     this.message,
     this.ingredients = const [],
+    this.rows = const [],
   });
 
   final int id;
@@ -82,6 +112,9 @@ class AssistantRequest {
   /// Explicación para el usuario cuando la petición se rechaza o falla.
   final String? message;
   final List<AssistantIngredient> ingredients;
+
+  /// Barras de stock de una respuesta del admin; vacío si la respuesta no las trae.
+  final List<AdminAnswerRow> rows;
 
   /// La IA ya terminó de procesar la petición.
   bool get isFinished =>
@@ -104,6 +137,11 @@ class AssistantRequest {
       ),
       recipeName: json['recipe_name'] as String?,
       message: json['response_message'] as String?,
+      rows: [
+        for (final row
+            in (json['rows'] as List? ?? const []).cast<Map<String, dynamic>>())
+          AdminAnswerRow.fromJson(row),
+      ],
       ingredients: [
         for (final item in ingredients.cast<Map<String, dynamic>>())
           AssistantIngredient.fromJson(item),

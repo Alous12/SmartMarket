@@ -1,5 +1,13 @@
 import type { ShoppingListItem } from './shopping-list.js';
 
+/** Producto mostrado como barra de stock en la respuesta del admin. */
+export interface AdminAnswerRow {
+  product_id: number;
+  name: string;
+  stock: number;
+  status: 'out' | 'low' | 'ok';
+}
+
 export type AssistantRequestStatus =
   | 'RECEIVED'
   | 'PROCESSING'
@@ -17,6 +25,11 @@ export interface AssistantRequest {
   recipe_name: string | null;
   /** Respuesta de la IA o mensaje para el usuario cuando la petición se rechaza o falla. */
   response_message: string | null;
+  /**
+   * Productos con su stock que acompañan la respuesta del asistente del admin.
+   * Salen de la consulta real al inventario; ausente si la respuesta no los trae.
+   */
+  rows?: AdminAnswerRow[];
   recommendations_ready?: boolean;
   created_at: Date;
   updated_at: Date;

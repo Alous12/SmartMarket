@@ -81,12 +81,19 @@ Future<ProviderContainer> _pump(WidgetTester tester, _Backend backend) async {
   return container;
 }
 
+/// Abre una sección del perfil (los formularios viven en subpantallas).
+Future<void> _open(WidgetTester tester, String row) async {
+  await tester.tap(find.text(row));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('muestra los datos de la persona', (tester) async {
     await _pump(tester, _Backend());
 
     expect(find.text('Ana Pérez'), findsOneWidget);
     expect(find.text('Cliente'), findsOneWidget);
+    await _open(tester, 'Datos personales');
     expect(find.widgetWithText(TextFormField, 'Ana'), findsOneWidget);
     expect(find.widgetWithText(TextFormField, 'ana@mail.com'), findsOneWidget);
   });
@@ -96,6 +103,7 @@ void main() {
   ) async {
     final backend = _Backend();
     final container = await _pump(tester, backend);
+    await _open(tester, 'Datos personales');
     final save = find.widgetWithText(FilledButton, 'Guardar cambios');
     expect(tester.widget<FilledButton>(save).onPressed, isNull);
 
@@ -121,6 +129,7 @@ void main() {
     final backend = _Backend();
     await _pump(tester, backend);
 
+    await _open(tester, 'Cambiar contraseña');
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Contraseña actual'),
       'vieja1234',
@@ -146,6 +155,7 @@ void main() {
     final backend = _Backend();
     await _pump(tester, backend);
 
+    await _open(tester, 'Cambiar contraseña');
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Contraseña actual'),
       'vieja1234',
@@ -179,6 +189,7 @@ void main() {
       ..passwordError = 'La contraseña actual no es correcta.';
     await _pump(tester, backend);
 
+    await _open(tester, 'Cambiar contraseña');
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Contraseña actual'),
       'mala12345',

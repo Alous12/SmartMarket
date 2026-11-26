@@ -1,6 +1,10 @@
 import { Router } from 'express';
 
 import {
+  getOwnAssistantSettings,
+  updateOwnAssistantSettings,
+} from '../controllers/assistant-settings-controller.js';
+import {
   changeOwnPassword,
   createUser,
   deactivateUser,
@@ -21,6 +25,9 @@ usersRouter.post('/', createUser);
 usersRouter.get('/me', authenticate, getOwnProfile);
 usersRouter.patch('/me', authenticate, updateOwnProfile);
 usersRouter.put('/me/password', authenticate, changeOwnPassword);
+// Interruptores de Perfil: cómo elige el asistente.
+usersRouter.get('/me/assistant-settings', authenticate, getOwnAssistantSettings);
+usersRouter.patch('/me/assistant-settings', authenticate, updateOwnAssistantSettings);
 usersRouter.get('/', ...requireAdmin, listUsers);
 usersRouter.get('/:userId', ...requireAdmin, getUser);
 usersRouter.patch('/:userId', ...requireAdmin, updateUser);

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -45,12 +45,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         name: 'login',
-        builder: (context, state) => const LoginScreen(),
+        pageBuilder: (context, state) =>
+            _fadeSlidePage(state, const LoginScreen()),
       ),
       GoRoute(
         path: '/register',
         name: 'register',
-        builder: (context, state) => const RegisterScreen(),
+        pageBuilder: (context, state) =>
+            _fadeSlidePage(state, const RegisterScreen()),
       ),
       // El orden de las ramas es el de la barra inferior (ver MainShell).
       StatefulShellRoute.indexedStack(
@@ -98,12 +100,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/trabajador',
         name: 'staff',
-        builder: (context, state) => const StaffScreen(),
+        pageBuilder: (context, state) =>
+            _fadeSlidePage(state, const StaffScreen()),
       ),
       GoRoute(
         path: '/usuarios',
         name: 'users',
-        builder: (context, state) => const UsersScreen(),
+        pageBuilder: (context, state) =>
+            _fadeSlidePage(state, const UsersScreen()),
       ),
     ],
   );
@@ -113,3 +117,33 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   });
   return router;
 });
+
+/// Transición de las pantallas fuera de la barra inferior: aparecen y suben un
+/// 6 %. Sin animación si el sistema pide quitarlas.
+CustomTransitionPage<void> _fadeSlidePage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    name: state.name,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) return child;
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, 0.06),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}

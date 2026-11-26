@@ -9,7 +9,9 @@ import * as assistantRequestRepository from '../repositories/assistant-request-r
 import * as choiceRepository from '../repositories/assistant-choice-repository.js';
 import * as branchRepository from '../repositories/branch-repository.js';
 import * as ingredientRepository from '../repositories/ingredient-repository.js';
+import * as settingsRepository from '../repositories/assistant-settings-repository.js';
 import * as shoppingListRepository from '../repositories/shopping-list-repository.js';
+import { applyAssistantSettings } from './assistant-settings-service.js';
 import { getIdentity } from './auth-service.js';
 import { buildIngredientAvailability } from './ingredient-availability.js';
 import {
@@ -118,16 +120,21 @@ export async function getIngredientAvailability(
     ),
   ];
   const substitutions = await ingredientRepository.findSubstitutions(ingredientIds);
-  const [products, branches, choices, recommendations, profile] = await Promise.all([
-    ingredientRepository.findAvailableProducts([
-      ...ingredientIds,
-      ...substitutions.map((substitution) => substitution.substitute_ingredient_id),
-    ]),
-    branchRepository.findActive(),
-    choiceRepository.findChoices(list.list_id),
-    choiceRepository.findRecommendations(list.list_id),
-    choiceRepository.findProfile(identity.userId),
-  ]);
+  const [products, branches, choices, recommendations, learnedProfile, settings, frequent] =
+    await Promise.all([
+      ingredientRepository.findAvailableProducts([
+        ...ingredientIds,
+        ...substitutions.map((substitution) => substitution.substitute_ingredient_id),
+      ]),
+      branchRepository.findActive(),
+      choiceRepository.findChoices(list.list_id),
+      choiceRepository.findRecommendations(list.list_id),
+      choiceRepository.findProfile(identity.userId),
+      settingsRepository.find(identity.userId),
+      settingsRepository.findFrequentProducts(identity.userId),
+    ]);
+  // Los interruptores de Perfil ajustan el perfil aprendido; por defecto no cambian nada.
+  const profile = applyAssistantSettings(learnedProfile, settings);
 
   const { items, routes } = buildIngredientAvailability({
     items: list.items,
@@ -148,6 +155,11 @@ export async function getIngredientAvailability(
       branches.find((branch) => branch.branch_id === list.branch_id)?.name ?? null,
     items,
     routes,
+    // Para explicar en la app por qué una opción va primero.
+    assistant_profile: {
+      prefer_lower_price: profile.preferLowerPrice,
+      frequent_products: settings.remember_brands ? frequent : [],
+    },
   };
 }
 

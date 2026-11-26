@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/empty_or_error_state.dart';
+import '../../../../core/widgets/section_label.dart';
+import '../../../../core/widgets/staggered_entrance.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/staff_api.dart';
 import '../providers/staff_providers.dart';
@@ -16,16 +19,28 @@ class StaffScreen extends ConsumerWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+          backgroundColor: AppTheme.night,
+          foregroundColor: Colors.white,
+          toolbarHeight: 68,
           title: const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'SmartMarket',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.lime,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               Text(
                 'Panel de administración',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
               ),
             ],
           ),
@@ -48,42 +63,76 @@ class StaffScreen extends ConsumerWidget {
                 if (context.mounted) context.goNamed('login');
               },
             ),
+            const SizedBox(width: 4),
           ],
           bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(56),
+            preferredSize: const Size.fromHeight(64),
             child: Container(
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: AppTheme.border),
-                borderRadius: BorderRadius.circular(18),
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(AppTheme.radiusM),
               ),
               child: const TabBar(
                 indicatorSize: TabBarIndicatorSize.tab,
                 indicator: BoxDecoration(
                   color: AppTheme.lime,
-                  borderRadius: BorderRadius.all(Radius.circular(14)),
+                  borderRadius: BorderRadius.all(
+                    Radius.circular(AppTheme.radiusS),
+                  ),
                 ),
                 dividerColor: Colors.transparent,
                 labelColor: AppTheme.ink,
+                unselectedLabelColor: AppTheme.onNightMuted,
+                labelStyle: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
                 tabs: [
                   Tab(
-                    icon: Icon(Icons.add_box_outlined),
-                    text: 'Agregar producto',
+                    height: 44,
+                    iconMargin: EdgeInsets.zero,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_box_outlined, size: 20),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Agregar producto',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Tab(
-                    icon: Icon(Icons.swap_horiz),
-                    text: 'Cambiar de lugar',
+                    height: 44,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.swap_horiz, size: 20),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Cambiar de lugar',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
         ),
-        body: const TabBarView(
-          children: [_AddProductTab(), _MoveProductTab()],
-        ),
+        body: const TabBarView(children: [_AddProductTab(), _MoveProductTab()]),
       ),
     );
   }
@@ -116,6 +165,9 @@ class _AddProductTabState extends ConsumerState<_AddProductTab> {
   int? _sectionId;
   bool _saving = false;
 
+  /// Coordenadas visibles: se abren solas si faltan al guardar.
+  bool _advanced = false;
+
   @override
   void dispose() {
     for (final controller in [
@@ -135,34 +187,42 @@ class _AddProductTabState extends ConsumerState<_AddProductTab> {
     super.dispose();
   }
 
-  String? _required(String? value) =>
-      value == null || value.trim().isEmpty ? 'Este campo es obligatorio' : null;
+  String? _required(String? value) => value == null || value.trim().isEmpty
+      ? 'Este campo es obligatorio'
+      : null;
 
   InputDecoration _field(String label, {String? hint}) =>
       InputDecoration(labelText: label, hintText: hint);
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || _saving) return;
+    final valid = _formKey.currentState!.validate();
+    // Las coordenadas viven en «Avanzado»: si faltan, se muestran.
+    if ([_x, _y, _z].any((c) => _number(c.text) != null) && !_advanced) {
+      setState(() => _advanced = true);
+    }
+    if (!valid || _saving) return;
     setState(() => _saving = true);
     try {
-      await ref.read(staffApiProvider).createProduct(
-        ProductDraft(
-          sku: _sku.text.trim(),
-          name: _name.text.trim(),
-          brand: _brand.text.trim(),
-          price: _parse(_price),
-          unitOfMeasure: _unit.text.trim(),
-          categoryId: _categoryId!,
-          stock: _parse(_stock),
-          location: LocationDraft(
-            sectionId: _sectionId!,
-            x: _parse(_x),
-            y: _parse(_y),
-            z: _parse(_z),
-            shelf: _shelf.text.trim(),
-          ),
-        ),
-      );
+      await ref
+          .read(staffApiProvider)
+          .createProduct(
+            ProductDraft(
+              sku: _sku.text.trim(),
+              name: _name.text.trim(),
+              brand: _brand.text.trim(),
+              price: _parse(_price),
+              unitOfMeasure: _unit.text.trim(),
+              categoryId: _categoryId!,
+              stock: _parse(_stock),
+              location: LocationDraft(
+                sectionId: _sectionId!,
+                x: _parse(_x),
+                y: _parse(_y),
+                z: _parse(_z),
+                shelf: _shelf.text.trim(),
+              ),
+            ),
+          );
       ref.invalidate(staffProductsProvider);
       if (!mounted) return;
       _formKey.currentState!.reset();
@@ -184,149 +244,163 @@ class _AddProductTabState extends ConsumerState<_AddProductTab> {
   Widget build(BuildContext context) {
     final options = ref.watch(staffOptionsProvider);
     return options.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: AppTheme.green),
-      ),
-      error: (error, _) => _ErrorView(
-        message: error.toString(),
+      loading: () =>
+          const Center(child: CircularProgressIndicator(color: AppTheme.green)),
+      error: (error, _) => EmptyOrErrorState(
+        title: error.toString(),
         onRetry: () => ref.invalidate(staffOptionsProvider),
       ),
       data: (options) => Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        child: Column(
           children: [
-            const _AdminIntro(
-              icon: Icons.inventory_2_outlined,
-              title: 'Inventario de la sucursal',
-              subtitle:
-                  'Agrega productos con su ubicación para que aparezcan en el mapa y en las rutas.',
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextFormField(
-                      controller: _sku,
-                      decoration: _field('SKU'),
-                      enabled: !_saving,
-                      validator: _required,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _name,
-                      decoration: _field('Nombre del producto'),
-                      textCapitalization: TextCapitalization.words,
-                      enabled: !_saving,
-                      validator: _required,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _brand,
-                      decoration: _field('Marca (opcional)'),
-                      enabled: !_saving,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      initialValue: _categoryId,
-                      isExpanded: true,
-                      decoration: _field('Categoría'),
-                      items: [
-                        for (final category in options.categories)
-                          DropdownMenuItem(
-                            value: category.id,
-                            child: Text(category.name),
-                          ),
-                      ],
-                      onChanged: _saving
-                          ? null
-                          : (value) => setState(() => _categoryId = value),
-                      validator: (value) =>
-                          value == null ? 'Selecciona una categoría' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _price,
-                            decoration: _field('Precio'),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            enabled: !_saving,
-                            validator: _number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _stock,
-                            decoration: _field('Stock'),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            enabled: !_saving,
-                            validator: _number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _unit,
-                            decoration: _field('Unidad'),
-                            enabled: !_saving,
-                            validator: _required,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Ubicación en el supermercado',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                children: [
+                  const _AdminIntro(
+                    icon: Icons.inventory_2_outlined,
+                    title: 'Inventario de la sucursal',
+                    subtitle:
+                        'Agrega productos con su ubicación para que aparezcan en el mapa y en las rutas.',
+                  ),
+                  const SizedBox(height: 12),
+                  _FormCard(
+                    label: 'Producto',
+                    children: [
+                      TextFormField(
+                        controller: _sku,
+                        decoration: _field('SKU'),
+                        enabled: !_saving,
+                        validator: _required,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _LocationFields(
-                      sections: options.sections,
-                      sectionId: _sectionId,
-                      onSectionChanged: (value) =>
-                          setState(() => _sectionId = value),
-                      x: _x,
-                      y: _y,
-                      z: _z,
-                      shelf: _shelf,
-                    ),
-                  ],
-                ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _name,
+                        decoration: _field('Nombre del producto'),
+                        textCapitalization: TextCapitalization.words,
+                        enabled: !_saving,
+                        validator: _required,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _brand,
+                        decoration: _field('Marca (opcional)'),
+                        enabled: !_saving,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<int>(
+                        initialValue: _categoryId,
+                        isExpanded: true,
+                        decoration: _field('Categoría'),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusS),
+                        items: [
+                          for (final category in options.categories)
+                            DropdownMenuItem(
+                              value: category.id,
+                              child: Text(category.name),
+                            ),
+                        ],
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _categoryId = value),
+                        validator: (value) =>
+                            value == null ? 'Selecciona una categoría' : null,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _FormCard(
+                    label: 'Precio y stock',
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _price,
+                              decoration: _field('Precio'),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              enabled: !_saving,
+                              validator: _number,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _stock,
+                              decoration: _field('Stock'),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              enabled: !_saving,
+                              validator: _number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _unit,
+                        decoration: _field('Unidad'),
+                        enabled: !_saving,
+                        validator: _required,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _FormCard(
+                    label: 'Ubicación en el supermercado',
+                    children: [
+                      _LocationFields(
+                        sections: options.sections,
+                        sectionId: _sectionId,
+                        onSectionChanged: (value) =>
+                            setState(() => _sectionId = value),
+                        x: _x,
+                        y: _y,
+                        z: _z,
+                        shelf: _shelf,
+                        advanced: _advanced,
+                        onAdvancedChanged: (value) =>
+                            setState(() => _advanced = value),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.add_circle_outline),
-              label: Text(_saving ? 'Guardando…' : 'Agregar producto'),
+            DecoratedBox(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: AppTheme.border)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(AppTheme.buttonHeight),
+                    ),
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.ink,
+                            ),
+                          )
+                        : const Icon(Icons.add_circle_outline),
+                    label: Text(_saving ? 'Guardando…' : 'Agregar producto'),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -343,6 +417,31 @@ String? _number(String? value) =>
 double _parse(TextEditingController controller) =>
     double.parse(controller.text.trim().replaceAll(',', '.'));
 
+/// Tarjeta de un grupo del formulario con su rótulo.
+class _FormCard extends StatelessWidget {
+  const _FormCard({required this.label, required this.children});
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionLabel(label),
+            const SizedBox(height: 14),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LocationFields extends StatelessWidget {
   const _LocationFields({
     required this.sections,
@@ -352,6 +451,8 @@ class _LocationFields extends StatelessWidget {
     required this.y,
     required this.z,
     required this.shelf,
+    this.advanced,
+    this.onAdvancedChanged,
   });
 
   final List<SectionOption> sections;
@@ -361,6 +462,10 @@ class _LocationFields extends StatelessWidget {
   final TextEditingController y;
   final TextEditingController z;
   final TextEditingController shelf;
+
+  /// Con valor, las coordenadas van en una sección plegable «Avanzado».
+  final bool? advanced;
+  final ValueChanged<bool>? onAdvancedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -377,12 +482,26 @@ class _LocationFields extends StatelessWidget {
           ),
         );
 
+    final coordinates = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        coordinate('X', x),
+        const SizedBox(width: 8),
+        coordinate('Y', y),
+        const SizedBox(width: 8),
+        coordinate('Z', z),
+      ],
+    );
+    final open = advanced;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         DropdownButtonFormField<int>(
           initialValue: sectionId,
           isExpanded: true,
           decoration: const InputDecoration(labelText: 'Sección'),
+          borderRadius: BorderRadius.circular(AppTheme.radiusS),
           items: [
             for (final section in sections)
               DropdownMenuItem(value: section.id, child: Text(section.label)),
@@ -391,20 +510,87 @@ class _LocationFields extends StatelessWidget {
           validator: (value) => value == null ? 'Selecciona una sección' : null,
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            coordinate('X', x),
-            const SizedBox(width: 8),
-            coordinate('Y', y),
-            const SizedBox(width: 8),
-            coordinate('Z', z),
-          ],
-        ),
-        const SizedBox(height: 12),
         TextFormField(
           controller: shelf,
           decoration: const InputDecoration(labelText: 'Estante (opcional)'),
         ),
+        const SizedBox(height: 12),
+        if (open == null)
+          coordinates
+        else ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(AppTheme.radiusS),
+            onTap: () => onAdvancedChanged?.call(!open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.tune, size: 20, color: AppTheme.green),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Avanzado',
+                      style: TextStyle(
+                        color: AppTheme.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: open ? 0.5 : 0,
+                    duration: AppTheme.motion(context, AppTheme.fast),
+                    child: const Icon(Icons.expand_more, color: AppTheme.muted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: AppTheme.motion(context, AppTheme.medium),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            // Los campos siguen montados aunque estén plegados, para validarlos.
+            child: Visibility(
+              visible: open,
+              maintainState: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.tint,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusS),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 18,
+                          color: AppTheme.green,
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Para ubicarlo visualmente usa Editar tienda en el mapa',
+                            style: TextStyle(
+                              color: AppTheme.green,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  coordinates,
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -438,12 +624,14 @@ class _MoveProductTab extends ConsumerWidget {
     final products = ref.watch(staffProductsProvider);
     final options = ref.watch(staffOptionsProvider);
     return products.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => _ErrorView(
-        message: error.toString(),
+      loading: () =>
+          const Center(child: CircularProgressIndicator(color: AppTheme.green)),
+      error: (error, _) => EmptyOrErrorState(
+        title: error.toString(),
         onRetry: () => ref.invalidate(staffProductsProvider),
       ),
       data: (items) => RefreshIndicator(
+        color: AppTheme.green,
         onRefresh: () => ref.refresh(staffProductsProvider.future),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -456,39 +644,63 @@ class _MoveProductTab extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             if (items.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Todavía no hay productos con ubicación.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
+              const EmptyOrErrorState(
+                error: false,
+                icon: Icons.location_off_outlined,
+                title: 'Todavía no hay productos con ubicación.',
               )
             else
-              for (final p in items) ...[
-                Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
+              for (final (index, p) in items.indexed) ...[
+                StaggeredEntrance(
+                  index: index,
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      leading: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: AppTheme.tint,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusS),
+                        ),
+                        child: const Icon(
+                          Icons.inventory_2_outlined,
+                          color: AppTheme.green,
+                        ),
+                      ),
+                      title: Text(
+                        p.name,
+                        style: const TextStyle(
+                          color: AppTheme.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${p.sku} · ${p.branchName == null ? '' : '${p.branchName} · '}${p.sectionName ?? 'Sin ubicación'}'
+                        '${p.shelf == null ? '' : ' · ${p.shelf}'}',
+                        style: const TextStyle(
+                          color: AppTheme.muted,
+                          fontSize: 13,
+                        ),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppTheme.muted,
+                      ),
+                      onTap: options.hasValue
+                          ? () => _move(
+                              context,
+                              ref,
+                              p,
+                              options.requireValue.sections,
+                            )
+                          : null,
                     ),
-                    leading: const CircleAvatar(
-                      backgroundColor: AppTheme.tint,
-                      foregroundColor: AppTheme.green,
-                      child: Icon(Icons.inventory_2_outlined),
-                    ),
-                    title: Text(p.name),
-                    subtitle: Text(
-                      '${p.sku} · ${p.branchName == null ? '' : '${p.branchName} · '}${p.sectionName ?? 'Sin ubicación'}'
-                      '${p.shelf == null ? '' : ' · ${p.shelf}'}',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: options.hasValue
-                        ? () =>
-                              _move(context, ref, p, options.requireValue.sections)
-                        : null,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -517,16 +729,18 @@ class _AdminIntro extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.tint,
-        border: Border.all(color: AppTheme.border),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.radiusL),
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: AppTheme.lime,
-            foregroundColor: AppTheme.ink,
-            child: Icon(icon),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppTheme.lime,
+              borderRadius: BorderRadius.circular(AppTheme.radiusS),
+            ),
+            child: Icon(icon, color: AppTheme.ink),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -536,12 +750,16 @@ class _AdminIntro extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
+                    color: AppTheme.ink,
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(color: AppTheme.muted)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 14),
+                ),
               ],
             ),
           ),
@@ -621,30 +839,6 @@ class _MoveDialogState extends State<_MoveDialog> {
           child: const Text('Guardar'),
         ),
       ],
-    );
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            OutlinedButton(onPressed: onRetry, child: const Text('Reintentar')),
-          ],
-        ),
-      ),
     );
   }
 }

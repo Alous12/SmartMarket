@@ -145,4 +145,10 @@ export type IngredientAvailabilityList = Omit<ShoppingList, 'items'> & {
   items: IngredientAvailabilityItem[];
   /** Un recorrido por sucursal con algo de la lista, de mejor a peor. */
   routes: ShoppingRoute[];
+  /** Qué prefiere el usuario, para explicar el orden de las opciones. */
+  assistant_profile?: {
+    prefer_lower_price: boolean;
+    /** Productos elegidos en dos o más ítems distintos, con cuántas veces. */
+    frequent_products: Array<{ product_id: number; times: number }>;
+  };
 };

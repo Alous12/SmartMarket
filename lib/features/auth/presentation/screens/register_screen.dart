@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/sm_buttons.dart';
+import '../../../../core/widgets/sm_text_field.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/auth_widgets.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -22,7 +25,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    // La ayuda «Mínimo 8 caracteres» se pone verde mientras se escribe.
+    _passwordController.addListener(_onPasswordChanged);
+  }
+
+  void _onPasswordChanged() => setState(() {});
+
+  @override
   void dispose() {
+    _passwordController.removeListener(_onPasswordChanged);
     _nameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
@@ -33,12 +46,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    await ref.read(authControllerProvider.notifier).register(
-      name: _nameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+    await ref
+        .read(authControllerProvider.notifier)
+        .register(
+          name: _nameController.text.trim(),
+          lastName: _lastNameController.text.trim(),
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
     if (!mounted) return;
     if (ref.read(authControllerProvider).asData?.value != null) {
       context.goNamed('supermarket');
@@ -55,189 +70,229 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState.isLoading;
     final error = authState.hasError ? authState.error.toString() : null;
+    final passwordLongEnough = _passwordController.text.length >= 8;
+
+    final nameField = SmTextField(
+      label: 'Nombre',
+      controller: _nameController,
+      enabled: !isLoading,
+      textCapitalization: TextCapitalization.words,
+      textInputAction: TextInputAction.next,
+      maxLength: 100,
+      validator: (value) =>
+          value == null || value.trim().isEmpty ? 'Ingresa tu nombre.' : null,
+    );
+    final lastNameField = SmTextField(
+      label: 'Apellido',
+      controller: _lastNameController,
+      enabled: !isLoading,
+      textCapitalization: TextCapitalization.words,
+      textInputAction: TextInputAction.next,
+      maxLength: 100,
+      validator: (value) =>
+          value == null || value.trim().isEmpty ? 'Ingresa tu apellido.' : null,
+    );
 
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Card(
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.all(28),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Icon(
-                          Icons.person_add_alt_1_rounded,
-                          color: AppTheme.green,
-                          size: 48,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Crear cuenta',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                color: AppTheme.green,
-                                fontWeight: FontWeight.w800,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(22, 14, 22, 16),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              SmBackButton(
+                                tooltip: 'Volver al inicio de sesión',
+                                onPressed: isLoading ? null : _openLogin,
                               ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Regístrate para empezar a explorar SmartMarket.',
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        TextFormField(
-                          controller: _nameController,
-                          enabled: !isLoading,
-                          decoration: const InputDecoration(
-                            labelText: 'Nombre',
-                            prefixIcon: Icon(Icons.person_outline),
-                            border: OutlineInputBorder(),
+                              const Spacer(),
+                              const SmLogo(size: 40),
+                            ],
                           ),
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          maxLength: 100,
-                          validator: (value) => value == null || value.trim().isEmpty
-                              ? 'Ingresa tu nombre.'
-                              : null,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _lastNameController,
-                          enabled: !isLoading,
-                          decoration: const InputDecoration(
-                            labelText: 'Apellido',
-                            prefixIcon: Icon(Icons.person_outline),
-                            border: OutlineInputBorder(),
+                          const SizedBox(height: 22),
+                          Semantics(
+                            header: true,
+                            child: const Text(
+                              'Crea tu cuenta',
+                              style: TextStyle(
+                                color: AppTheme.ink,
+                                fontSize: 32,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.7,
+                              ),
+                            ),
                           ),
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          maxLength: 100,
-                          validator: (value) => value == null || value.trim().isEmpty
-                              ? 'Ingresa tu apellido.'
-                              : null,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _emailController,
-                          enabled: !isLoading,
-                          decoration: const InputDecoration(
-                            labelText: 'Correo electrónico',
-                            prefixIcon: Icon(Icons.mail_outline),
-                            border: OutlineInputBorder(),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Regístrate para empezar a explorar SmartMarket.',
+                            style: TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 17,
+                              height: 1.4,
+                            ),
                           ),
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.newUsername],
-                          maxLength: 255,
-                          validator: (value) {
-                            final email = value?.trim() ?? '';
-                            if (email.isEmpty) return 'Ingresa tu correo.';
-                            if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                                .hasMatch(email)) {
-                              return 'Ingresa un correo válido.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _passwordController,
-                          enabled: !isLoading,
-                          decoration: InputDecoration(
-                            labelText: 'Contraseña',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            border: const OutlineInputBorder(),
-                            suffixIcon: IconButton(
-                              tooltip: _obscurePassword
-                                  ? 'Mostrar contraseña'
-                                  : 'Ocultar contraseña',
+                          const SizedBox(height: 24),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              if (constraints.maxWidth < 300) {
+                                return Column(
+                                  children: [
+                                    nameField,
+                                    const SizedBox(height: 18),
+                                    lastNameField,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: nameField),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: lastNameField),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          SmTextField(
+                            label: 'Correo electrónico',
+                            controller: _emailController,
+                            enabled: !isLoading,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.newUsername],
+                            maxLength: 255,
+                            validator: (value) {
+                              final email = value?.trim() ?? '';
+                              if (email.isEmpty) return 'Ingresa tu correo.';
+                              if (!RegExp(
+                                r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                              ).hasMatch(email)) {
+                                return 'Ingresa un correo válido.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          SmTextField(
+                            label: 'Contraseña',
+                            controller: _passwordController,
+                            enabled: !isLoading,
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.newPassword],
+                            suffix: PasswordEye(
+                              obscured: _obscurePassword,
                               onPressed: isLoading
                                   ? null
                                   : () => setState(
-                                      () => _obscurePassword = !_obscurePassword,
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
                                     ),
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
                             ),
+                            validator: (value) {
+                              if (value == null || value.length < 8) {
+                                return 'Usa al menos 8 caracteres.';
+                              }
+                              return null;
+                            },
                           ),
-                          obscureText: _obscurePassword,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.newPassword],
-                          validator: (value) {
-                            if (value == null || value.length < 8) {
-                              return 'Usa al menos 8 caracteres.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _confirmPasswordController,
-                          enabled: !isLoading,
-                          decoration: const InputDecoration(
-                            labelText: 'Confirmar contraseña',
-                            prefixIcon: Icon(Icons.lock_outline),
-                            border: OutlineInputBorder(),
+                          const SizedBox(height: 8),
+                          _PasswordHint(met: passwordLongEnough),
+                          const SizedBox(height: 14),
+                          SmTextField(
+                            label: 'Confirmar contraseña',
+                            controller: _confirmPasswordController,
+                            enabled: !isLoading,
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _submit(),
+                            validator: (value) =>
+                                value != _passwordController.text
+                                ? 'Las contraseñas no coinciden.'
+                                : null,
                           ),
-                          obscureText: _obscurePassword,
-                          textInputAction: TextInputAction.done,
-                          onFieldSubmitted: (_) => _submit(),
-                          validator: (value) =>
-                              value != _passwordController.text
-                                  ? 'Las contraseñas no coinciden.'
-                                  : null,
-                        ),
-                        if (error != null) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            error,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
+                          AnimatedSize(
+                            duration: AppTheme.motion(context, AppTheme.medium),
+                            curve: Curves.easeOutCubic,
+                            child: error == null
+                                ? const SizedBox(width: double.infinity)
+                                : Padding(
+                                    padding: const EdgeInsets.only(top: 16),
+                                    child: AuthErrorBanner(message: error),
+                                  ),
                           ),
                         ],
-                        const SizedBox(height: 24),
-                        FilledButton(
-                          onPressed: isLoading ? null : _submit,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(52),
-                          ),
-                          child: isLoading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('Crear cuenta'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton(
-                          onPressed: isLoading ? null : _openLogin,
-                          child: const Text('Ya tengo una cuenta'),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+              AuthBottomActions(
+                primary: SmPrimaryButton(
+                  label: 'Crear cuenta',
+                  loading: isLoading,
+                  onPressed: _submit,
+                ),
+                secondary: TextButton(
+                  onPressed: isLoading ? null : _openLogin,
+                  child: const Text('Ya tengo una cuenta'),
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Ayuda en vivo de la contraseña: pasa a verde con un check al cumplirse.
+class _PasswordHint extends StatelessWidget {
+  const _PasswordHint({required this.met});
+
+  final bool met;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = met ? AppTheme.green : AppTheme.muted;
+    final duration = AppTheme.motion(context, AppTheme.fast);
+    return Semantics(
+      liveRegion: true,
+      child: Row(
+        children: [
+          AnimatedSwitcher(
+            duration: duration,
+            transitionBuilder: (child, animation) =>
+                ScaleTransition(scale: animation, child: child),
+            child: Icon(
+              met ? Icons.check_rounded : Icons.circle_outlined,
+              key: ValueKey(met),
+              size: 20,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 8),
+          AnimatedDefaultTextStyle(
+            duration: duration,
+            style: TextStyle(
+              color: color,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
+            child: const Text('Mínimo 8 caracteres'),
+          ),
+        ],
       ),
     );
   }

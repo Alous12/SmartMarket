@@ -113,5 +113,6 @@ class YawTracker {
     return -math.atan2(towardEast, towardNorth);
   }
 
-  static double _wrap(double angle) => math.atan2(math.sin(angle), math.cos(angle));
+  static double _wrap(double angle) =>
+      math.atan2(math.sin(angle), math.cos(angle));
 }

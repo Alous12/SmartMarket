@@ -67,11 +67,17 @@ class StoreProduct {
     this.slotId = '',
     this.x,
     this.z,
+    this.section,
+    this.shelf,
   });
 
   final String id;
   final String name;
   final String category;
+
+  /// Sección y estante en la base de datos (null si no se cargaron).
+  final String? section;
+  final String? shelf;
   final String routeNode;
   final double? price;
   final double? stock;
@@ -93,6 +99,8 @@ class StoreProduct {
     double? price,
     double? stock,
     int? dbId,
+    String? section,
+    String? shelf,
   }) => StoreProduct(
     id: id,
     name: name ?? this.name,
@@ -104,6 +112,8 @@ class StoreProduct {
     dbId: dbId ?? this.dbId,
     x: x,
     z: z,
+    section: section ?? this.section,
+    shelf: shelf ?? this.shelf,
   );
 }
 

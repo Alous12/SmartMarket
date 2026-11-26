@@ -282,6 +282,7 @@ export async function findAdminInventory(
       ? await findLocations(branchId, rows.map((row) => row.product_id))
       : new Map<number, ProductLocation[]>();
     products.push(...rows.map((row) => ({
+      product_id: Number(row.product_id),
       name: String(row.name),
       sku: String(row.sku),
       brand: row.brand === null ? null : String(row.brand),

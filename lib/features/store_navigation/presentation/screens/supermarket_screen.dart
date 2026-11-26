@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/empty_or_error_state.dart';
 import '../../../assistant/domain/entities/recipe_availability.dart';
 import '../../../auth/data/auth_api.dart' show AuthSession;
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -14,7 +15,11 @@ import '../../domain/services/store_route_planner.dart';
 import '../controllers/route_motion_controller.dart';
 import '../controllers/store_edit_controller.dart';
 import '../providers/store_model_provider.dart';
+import '../../../../core/widgets/staggered_entrance.dart';
 import '../widgets/bottom_action.dart';
+import '../widgets/route_complete_view.dart';
+import '../widgets/store_labels.dart';
+import 'before_walking_screen.dart';
 import '../widgets/edit_banner.dart';
 import '../widgets/map_options_sheet.dart';
 import '../widgets/map_widgets.dart';
@@ -44,6 +49,16 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   bool _topView = false;
   bool _exitDialogOpen = false;
   bool _changingStore = false;
+
+  /// False si el usuario eligió ver solo la ruta, sin seguir sus pasos.
+  bool _tracking = true;
+
+  /// Ruta que armó el asistente (para el resumen al terminar).
+  ShoppingRoute? _activeRoute;
+  DateTime? _routeStartedAt;
+
+  /// La ruta vino de una receta del asistente (queda en su historial).
+  String? get _activeRecipe => _activeRoute == null ? null : 'receta';
   late final StoreEditController _edit;
   late final RouteMotionController _motion;
   StoreRoutePlan? _guidancePlan;
@@ -80,7 +95,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     // Los sensores solo corren mientras queda una parada por recorrer.
     ref.listenManual(
       navigationSessionProvider.select((session) => session.current != null),
-      (previous, walking) => _motion.active = walking,
+      (previous, walking) => _motion.active = walking && _tracking,
       fireImmediately: true,
     );
     ref.listenManual(mapRequestProvider, (previous, request) {
@@ -97,8 +112,17 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
         await _selectStore(store);
       case FocusProductRequest(:final productId):
         _viewport?.selectProduct(productId);
-      case ShowRouteRequest(:final route):
+      case ShowRouteRequest(:final route, :final tracking):
+        _setTracking(tracking);
         await _showShoppingRoute(route);
+      case StartEditRequest():
+        final StoreModel model;
+        try {
+          model = await ref.read(storeModelProvider.future);
+        } on Object {
+          return;
+        }
+        if (mounted && !_edit.editing) _edit.toggle(model);
     }
   }
 
@@ -208,7 +232,20 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     );
   }
 
+  /// Activa o apaga el seguimiento de pasos de la ruta en curso.
+  void _setTracking(bool value) {
+    _tracking = value;
+    _motion.active =
+        value && ref.read(navigationSessionProvider).current != null;
+  }
+
+  void _restartRoute() {
+    _routeStartedAt = DateTime.now();
+    ref.read(navigationSessionProvider.notifier).restart();
+  }
+
   void _startNavigation(StoreModel model, StoreRoutePlan plan) {
+    _routeStartedAt = DateTime.now();
     ref
         .read(navigationSessionProvider.notifier)
         .start(plan, northDegrees: model.store.mapNorthDegrees);
@@ -230,11 +267,24 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           : (top + box.size.height).clamp(0, viewport.size.height);
     }
 
-    _viewport?.setInsets(
+    final insets = (
       edge(_topPanelKey, bottom: false),
       edge(_bottomPanelKey, bottom: true),
     );
+    final current = _viewport;
+    // Solo se avisa al visor 3D si los márgenes cambiaron: cada aviso es una
+    // llamada a JavaScript.
+    if (current == null ||
+        (identical(current, _insetsViewport) && insets == _lastInsets)) {
+      return;
+    }
+    _insetsViewport = current;
+    _lastInsets = insets;
+    current.setInsets(insets.$1, insets.$2);
   }
+
+  SupermarketViewportState? _insetsViewport;
+  (double, double)? _lastInsets;
 
   RouteGuidance? _guidanceFor(StoreRoutePlan? plan) {
     if (plan == null) return null;
@@ -258,6 +308,14 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       _clearRoute();
       return;
     }
+    // Antes de seguir los pasos, el usuario se para en la entrada.
+    final tracking = await BeforeWalkingScreen.open(
+      context,
+      model.store.displayName,
+    );
+    if (!mounted || tracking == null) return;
+    _activeRoute = null;
+    _setTracking(tracking);
     try {
       _startNavigation(model, _planRoute(model, chosen));
       _showTopView();
@@ -302,6 +360,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
     try {
       _startNavigation(model, _planRoute(model, productIds));
+      _activeRoute = route;
       _showTopView();
     } on StateError catch (error) {
       _toast(error.message);
@@ -381,7 +440,21 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     }
   }
 
-  void _clearRoute() => ref.read(navigationSessionProvider.notifier).clear();
+  void _clearRoute() {
+    _activeRoute = null;
+    _tracking = true;
+    ref.read(navigationSessionProvider.notifier).clear();
+  }
+
+  /// Lleva a la pestaña Asistente para armar la lista desde un plato.
+  void _openAssistant() {
+    final shell = StatefulNavigationShell.maybeOf(context);
+    if (shell != null) {
+      shell.goBranch(0);
+    } else {
+      context.goNamed('assistant');
+    }
+  }
 
   void _recenter() {
     ref.read(navigationSessionProvider.notifier).recenter();
@@ -401,87 +474,104 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     // La ruta del asistente se inicia mientras carga otro supermercado: sin este
     // watch la sesión se destruiría antes de que el mapa la muestre.
     ref.watch(navigationSessionProvider);
+    final locked = ref.watch(lockedStoreProvider) != null;
     return PopScope<Object?>(
       canPop: Navigator.of(context).canPop(),
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _confirmExit();
       },
       child: Scaffold(
+        backgroundColor: const Color(0xFFDDE3D6),
         // El teclado no debe cambiar el tamaño del visor ni el encuadre de la cámara.
         resizeToAvoidBottomInset: false,
-        appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'SmartMarket',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-              Text(
-                _welcome(ref.watch(authControllerProvider).asData?.value),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              tooltip: 'Cerrar sesión',
-              icon: const Icon(Icons.logout),
-              onPressed: _logout,
-            ),
-            const SizedBox(width: 8),
-          ],
-          bottom: ref.watch(lockedStoreProvider) != null
-              ? null
-              : PreferredSize(
-                  preferredSize: const Size.fromHeight(56),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: StoreSegments(
-                        store: store,
-                        onChanged: _selectStore,
-                      ),
-                    ),
+        body: model.when(
+          loading: () => _Placeholder(
+            header: _greeting(store, locked),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                  ),
+                  child: const CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: AppTheme.green,
                   ),
                 ),
-        ),
-        body: SafeArea(
-          top: false,
-          child: model.when(
-            loading: () => const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: AppTheme.green),
-                  SizedBox(height: 16),
-                  Text('Cargando el supermercado…'),
-                ],
-              ),
-            ),
-            error: (error, stack) => CenteredMessage(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('No se pudo cargar el modelo del supermercado.'),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () => ref.invalidate(storeModelProvider),
-                    child: const Text('Reintentar'),
+                const SizedBox(height: 16),
+                const Text(
+                  'Cargando el supermercado…',
+                  style: TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            data: (model) => _buildNavigation(context, model),
           ),
+          error: (error, stack) => _Placeholder(
+            header: _greeting(store, locked),
+            child: EmptyOrErrorState(
+              icon: Icons.view_in_ar_outlined,
+              title: 'No se pudo cargar el modelo del supermercado.',
+              message:
+                  'Revisa tu conexión o que el servidor esté encendido e inténtalo otra vez.',
+              onRetry: () => ref.invalidate(storeModelProvider),
+            ),
+          ),
+          data: (model) => _buildNavigation(context, model),
         ),
       ),
+    );
+  }
+
+  /// Saludo, cierre de sesión y selector de sucursal (sin ruta en curso).
+  Widget _greeting(Supermarket store, bool locked) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: Text(
+                  _welcome(ref.watch(authControllerProvider).asData?.value),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+            ),
+            MapButton(
+              tooltip: 'Cerrar sesión',
+              size: 48,
+              onPressed: _logout,
+              child: const Icon(
+                Icons.logout_rounded,
+                size: 22,
+                color: AppTheme.ink,
+              ),
+            ),
+          ],
+        ),
+        if (!locked) ...[
+          const SizedBox(height: 12),
+          StoreSegments(store: store, onChanged: _selectStore),
+        ],
+      ],
     );
   }
 
@@ -503,6 +593,153 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     );
     final isAdmin =
         ref.watch(authControllerProvider).asData?.value?.isAdmin ?? false;
+    final locked = ref.watch(lockedStoreProvider) != null;
+    final navigating = routePlan != null && !_edit.editing;
+    final finished = navigating && session.current == null && stops.isNotEmpty;
+
+    final Widget top;
+    if (_edit.editing) {
+      top = EditBanner(
+        carrying: _edit.carrying,
+        busy: _edit.busy,
+        onDropCarry: _edit.dropCarry,
+        onFinish: () => _edit.toggle(model),
+      );
+    } else if (navigating) {
+      top = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              MapButton(
+                tooltip: 'Quitar ruta',
+                onPressed: _clearRoute,
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 26,
+                  color: AppTheme.ink,
+                ),
+              ),
+              const Spacer(),
+              Flexible(
+                flex: 6,
+                child: RouteSummaryCard(
+                  plan: routePlan,
+                  nameOf: nameOf,
+                  onClear: _clearRoute,
+                  steps: session.steps,
+                  collected: session.collected,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          InstructionCard(
+            navigating: true,
+            title: instruction.title,
+            subtitle: instruction.subtitle,
+            icon: instruction.icon,
+          ),
+        ],
+      );
+    } else {
+      top = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _greeting(model.store, locked),
+          const SizedBox(height: 12),
+          if (isAdmin)
+            InstructionCard(
+              title: 'Panel administrador',
+              subtitle: 'Mapa y productos de tu sucursal',
+              icon: Icons.storefront_outlined,
+              value: '${model.metadata.products.length}',
+              unit: model.metadata.products.length == 1
+                  ? 'producto'
+                  : 'productos',
+            )
+          else
+            InstructionCard(
+              title: instruction.title,
+              subtitle: instruction.subtitle,
+              icon: Icons.route_outlined,
+            ),
+        ],
+      );
+    }
+
+    final Widget? bottom;
+    if (_edit.editing) {
+      bottom = null;
+    } else if (navigating && !finished) {
+      bottom = NotificationListener<SizeChangedLayoutNotification>(
+        // La hoja cambia de alto al plegarse: el mapa se vuelve a centrar.
+        onNotification: (_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _syncInsets());
+          return true;
+        },
+        child: SizeChangedLayoutNotifier(
+          child: NextStopSheet(
+            key: _bottomPanelKey,
+            stops: stops,
+            index: session.nextProductIndex,
+            collected: session.collected,
+            nameOf: nameOf,
+            onSkip: () => _advanceNavigation(collected: false),
+            onCollected: () => _advanceNavigation(collected: true),
+            onRestart: _restartRoute,
+          ),
+        ),
+      );
+    } else if (navigating) {
+      bottom = null;
+    } else {
+      bottom = SafeArea(
+        top: false,
+        child: Padding(
+          key: _bottomPanelKey,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!isAdmin) ...[
+                AssistantHintCard(onTap: _openAssistant),
+                const SizedBox(height: 12),
+              ],
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                  boxShadow: AppTheme.cardShadow,
+                ),
+                child: FilledButton.icon(
+                  onPressed: isAdmin
+                      ? () => _edit.toggle(model)
+                      : () => _pickRoute(model),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(60),
+                    textStyle: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  icon: Icon(
+                    isAdmin
+                        ? Icons.edit_location_alt_outlined
+                        : Icons.search_rounded,
+                    size: 26,
+                  ),
+                  label: Text(isAdmin ? 'Editar tienda' : 'Armar mi ruta'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -520,158 +757,117 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           completedStops: session.nextProductIndex,
           walkerPose: session.pose,
         ),
-        SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (isAdmin)
-                  InstructionCard(
-                    key: _topPanelKey,
-                    title: _edit.editing
-                        ? 'Editando el supermercado'
-                        : 'Panel administrador',
-                    subtitle: _edit.editing
-                        ? 'Toca una caja para mover o editar'
-                        : 'Mapa y productos de tu sucursal',
-                    icon: Icons.admin_panel_settings_outlined,
-                    value: '${model.metadata.products.length}',
-                    unit: model.metadata.products.length == 1
-                        ? 'producto'
-                        : 'productos',
-                  )
-                else
-                  InstructionCard(
-                    key: _topPanelKey,
-                    title: instruction.title,
-                    subtitle: instruction.subtitle,
-                    icon: instruction.icon,
-                    value: '${session.pending}',
-                    unit: session.pending == 1 ? 'parada' : 'paradas',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    bottom == null ? 0 : 12,
                   ),
-                const SizedBox(height: 20),
-                MapButton(
-                  tooltip: _topView ? 'Ver en 3D' : 'Vista superior',
-                  onPressed: _toggleTopView,
-                  child: Text(
-                    _topView ? '2D' : '3D',
-                    style: const TextStyle(
-                      color: AppTheme.green,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                MapButton(
-                  tooltip: 'Centrar mapa',
-                  onPressed: () => _viewport?.resetView(),
-                  child: const Icon(Icons.adjust, color: AppTheme.ink),
-                ),
-                const SizedBox(height: 12),
-                MapButton(
-                  tooltip: 'Opciones del mapa',
-                  onPressed: () => _openMapOptions(model),
-                  child: const Icon(Icons.layers_outlined, color: AppTheme.ink),
-                ),
-                if (_showMetrics) ...[
-                  const SizedBox(height: 12),
-                  ValueListenableBuilder<RenderMetrics>(
-                    valueListenable: _metrics,
-                    builder: (context, metrics, child) =>
-                        MetricsCard(metadata: model.metadata, metrics: metrics),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        if (_edit.editing)
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: EditBanner(
-              carrying: _edit.carrying,
-              busy: _edit.busy,
-              onDropCarry: _edit.dropCarry,
-              onFinish: () => _edit.toggle(model),
-            ),
-          )
-        else if (routePlan != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            // La hoja cambia de alto al plegarse: el mapa se vuelve a centrar.
-            child: NotificationListener<SizeChangedLayoutNotification>(
-              onNotification: (_) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _syncInsets(),
-                );
-                return true;
-              },
-              child: SizeChangedLayoutNotifier(
-                child: Column(
-                  key: _bottomPanelKey,
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Sobre la hoja: encima de ella taparía "Saltar" y "Ya lo tengo".
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
-                      child: Row(
-                        children: [
-                          MapButton(
-                            tooltip: 'Alinear con la ruta',
-                            onPressed: _recenter,
-                            child: const Icon(
-                              Icons.explore_outlined,
-                              color: AppTheme.ink,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        key: _topPanelKey,
+                        child: SmSwitcher(
+                          size: true,
+                          child: KeyedSubtree(
+                            key: ValueKey(
+                              _edit.editing
+                                  ? 'edit'
+                                  : navigating
+                                  ? 'route'
+                                  : 'idle',
                             ),
+                            child: top,
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: RouteSummaryCard(
-                              plan: routePlan,
-                              nameOf: nameOf,
-                              onClear: _clearRoute,
-                              steps: session.steps,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                    NextStopSheet(
-                      stops: stops,
-                      index: session.nextProductIndex,
-                      collected: session.collected,
-                      nameOf: nameOf,
-                      onSkip: () => _advanceNavigation(collected: false),
-                      onCollected: () => _advanceNavigation(collected: true),
-                      onRestart: () => ref
-                          .read(navigationSessionProvider.notifier)
-                          .restart(),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: Align(
+                          alignment: const Alignment(1, -0.35),
+                          // En pantallas bajas la columna se achica en vez de cortarse.
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.topRight,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                MapButton(
+                                  tooltip: _topView
+                                      ? 'Ver en 3D'
+                                      : 'Vista superior',
+                                  onPressed: _toggleTopView,
+                                  child: AnimatedSwitcher(
+                                    duration: AppTheme.motion(
+                                      context,
+                                      AppTheme.fast,
+                                    ),
+                                    transitionBuilder: (child, animation) =>
+                                        ScaleTransition(
+                                          scale: animation,
+                                          child: child,
+                                        ),
+                                    child: Text(
+                                      _topView ? '2D' : '3D',
+                                      key: ValueKey(_topView),
+                                      style: const TextStyle(
+                                        color: AppTheme.ink,
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                MapButton(
+                                  tooltip: 'Centrar mapa',
+                                  onPressed: () => _viewport?.resetView(),
+                                  child: const Icon(
+                                    Icons.my_location_rounded,
+                                    color: AppTheme.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                MapButton(
+                                  tooltip: 'Opciones del mapa',
+                                  onPressed: () => _openMapOptions(model),
+                                  child: const Icon(
+                                    Icons.layers_outlined,
+                                    color: AppTheme.ink,
+                                  ),
+                                ),
+                                if (navigating) ...[
+                                  const SizedBox(height: 14),
+                                  MapButton(
+                                    tooltip: 'Alinear con la ruta',
+                                    onPressed: _recenter,
+                                    child: const Icon(
+                                      Icons.explore_outlined,
+                                      color: AppTheme.ink,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          )
-        else if (isAdmin)
-          BottomAction(
-            onPressed: () => _edit.toggle(model),
-            icon: Icons.edit_location_alt_outlined,
-            label: 'Editar tienda',
-          )
-        else
-          BottomAction(
-            onPressed: () => _pickRoute(model),
-            icon: Icons.add_road,
-            label: 'Armar mi ruta',
-          ),
+            ?bottom,
+          ],
+        ),
         if (_showMetrics)
           Positioned(
             bottom: 16,
@@ -683,7 +879,72 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                   MetricsCard(metadata: model.metadata, metrics: metrics),
             ),
           ),
+        if (finished)
+          Positioned.fill(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: AppTheme.motion(context, AppTheme.slow),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) => Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 24 * (1 - value)),
+                  child: child,
+                ),
+              ),
+              child: RouteCompleteView(
+                collected: session.collected,
+                total: stops.length,
+                substitutes:
+                    _activeRoute?.stops
+                        .where((stop) => stop.isSubstitute)
+                        .length ??
+                    0,
+                minutes: _routeMinutes(),
+                estimate: stops.fold<double>(
+                  0,
+                  (sum, product) => sum + (product.price ?? 0),
+                ),
+                missing: _activeRoute?.missing ?? const [],
+                recipeName: _activeRecipe,
+                onRestart: _restartRoute,
+                onFinish: _clearRoute,
+                onOpenHistory: _activeRecipe == null ? null : _openAssistant,
+              ),
+            ),
+          ),
       ],
+    );
+  }
+
+  int _routeMinutes() {
+    final start = _routeStartedAt;
+    if (start == null) return 0;
+    final minutes = DateTime.now().difference(start).inSeconds / 60;
+    return minutes < 1 ? 1 : minutes.round();
+  }
+}
+
+/// Estado de carga o error con el saludo y el selector arriba.
+class _Placeholder extends StatelessWidget {
+  const _Placeholder({required this.header, required this.child});
+
+  final Widget header;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            Expanded(child: Center(child: child)),
+          ],
+        ),
+      ),
     );
   }
 }

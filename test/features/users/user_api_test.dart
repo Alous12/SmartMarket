@@ -191,5 +191,117 @@ void main() {
       );
       client.close();
     });
+
+    test('updateUser envía solo los campos indicados con el token', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'PATCH');
+        expect(request.url, Uri.parse('http://localhost:3000/api/users/7'));
+        expect(request.headers['authorization'], 'Bearer staff-token');
+        expect(request.headers['content-type'], 'application/json');
+        expect(jsonDecode(request.body), {'name': 'Anita', 'status': false});
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'user_id': 7,
+              'name': 'Anita',
+              'last_name': 'Pérez',
+              'email': 'ana@example.com',
+              'role': 'user',
+              'status': false,
+            },
+          }),
+          200,
+        );
+      });
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+        tokenReader: () async => 'staff-token',
+      );
+
+      final user = await api.updateUser(7, name: 'Anita', status: false);
+
+      expect(user.name, 'Anita');
+      expect(user.isActive, isFalse);
+      client.close();
+    });
+
+    test('updateUser expone el error del backend', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({'error': 'Usuario no encontrado.'}),
+          404,
+        ),
+      );
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      await expectLater(
+        api.updateUser(99, email: 'x@example.com'),
+        throwsA(
+          isA<UserApiException>().having(
+            (e) => e.message,
+            'message',
+            'Usuario no encontrado.',
+          ),
+        ),
+      );
+      client.close();
+    });
+
+    test('lee los ajustes del asistente con el token', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(
+          request.url,
+          Uri.parse('http://localhost:3000/api/users/me/assistant-settings'),
+        );
+        expect(request.headers['authorization'], 'Bearer t');
+        return http.Response(
+          jsonEncode({
+            'data': {'prioritize_cheapest': false, 'remember_brands': true},
+          }),
+          200,
+        );
+      });
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+        tokenReader: () async => 't',
+      );
+
+      final settings = await api.getAssistantSettings();
+
+      expect(settings.prioritizeCheapest, isFalse);
+      expect(settings.rememberBrands, isTrue);
+      client.close();
+    });
+
+    test('cambia solo el interruptor indicado', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'PATCH');
+        expect(request.url.path, '/api/users/me/assistant-settings');
+        expect(jsonDecode(request.body), {'prioritize_cheapest': true});
+        return http.Response(
+          jsonEncode({
+            'data': {'prioritize_cheapest': true, 'remember_brands': true},
+          }),
+          200,
+        );
+      });
+      final api = UserApi(
+        client: client,
+        baseUri: Uri.parse('http://localhost:3000/api'),
+      );
+
+      final settings = await api.updateAssistantSettings(
+        prioritizeCheapest: true,
+      );
+
+      expect(settings.prioritizeCheapest, isTrue);
+      client.close();
+    });
   });
 }

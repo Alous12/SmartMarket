@@ -2,6 +2,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { pool } from '../database/pool.js';
 import type {
+  AdminAnswerRow,
   AssistantRequest,
   AssistantRequestStatus,
   RecipeHistoryEntry,
@@ -19,10 +20,17 @@ const columns = `
   status,
   recipe_name,
   response_message,
+  response_rows,
   recommendations_ready,
   created_at,
   updated_at
 `;
+
+/** `rows` solo si la petición las guardó (respuestas del admin). */
+function readRows(value: unknown): { rows?: AdminAnswerRow[] } {
+  const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+  return Array.isArray(parsed) ? { rows: parsed as AdminAnswerRow[] } : {};
+}
 
 export async function findById(
   requestId: number,
@@ -41,6 +49,7 @@ export async function findById(
     status: row.status,
     recipe_name: row.recipe_name,
     response_message: row.response_message,
+    ...readRows(row.response_rows),
     recommendations_ready: Boolean(row.recommendations_ready),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -119,13 +128,31 @@ export async function saveAnalysis(
     status: AssistantRequestStatus;
     recipeName: string | null;
     message: string | null;
+    /** Solo las respuestas del admin traen filas; si falta, la columna no cambia. */
+    rows?: AdminAnswerRow[];
   },
 ): Promise<void> {
+  if (analysis.rows === undefined) {
+    await pool.execute(
+      `UPDATE assistant_requests
+       SET status = ?, recipe_name = ?, response_message = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE request_id = ?`,
+      [analysis.status, analysis.recipeName, analysis.message, requestId],
+    );
+    return;
+  }
   await pool.execute(
     `UPDATE assistant_requests
-     SET status = ?, recipe_name = ?, response_message = ?,
+     SET status = ?, recipe_name = ?, response_message = ?, response_rows = ?,
          updated_at = CURRENT_TIMESTAMP
      WHERE request_id = ?`,
-    [analysis.status, analysis.recipeName, analysis.message, requestId],
+    [
+      analysis.status,
+      analysis.recipeName,
+      analysis.message,
+      JSON.stringify(analysis.rows),
+      requestId,
+    ],
   );
 }
