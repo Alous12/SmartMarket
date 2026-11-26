@@ -85,13 +85,24 @@ class StoreEditController extends ChangeNotifier {
       final context = _context;
       if (!context.mounted) return;
       viewport()?.selectProduct(box.id);
-      final action = await showSlotActions(
+      final choice = await showSlotActions(
         context,
         product: occupied,
         carrying: carrying,
+        slot: box,
       );
-      if (!_mounted || action == null) return;
-      await _runSlotAction(action, box, occupied);
+      if (!_mounted || choice == null) return;
+      if (choice.action == SlotAction.finish) {
+        busy = false;
+        toggle(model);
+        return;
+      }
+      await _runSlotAction(
+        choice.action,
+        box,
+        occupied,
+        quickEdit: choice.form,
+      );
     } finally {
       if (_mounted) {
         busy = false;
@@ -122,8 +133,9 @@ class StoreEditController extends ChangeNotifier {
   Future<void> _runSlotAction(
     SlotAction action,
     StoreProduct box,
-    StoreProduct? occupied,
-  ) async {
+    StoreProduct? occupied, {
+    ProductFormResult? quickEdit,
+  }) async {
     final api = ref.read(catalogApiProvider);
     try {
       switch (action) {
@@ -145,16 +157,19 @@ class StoreEditController extends ChangeNotifier {
                 : '"${carried.name}" y "${occupied.name}" se intercambiaron.',
           );
         case SlotAction.edit:
-          final form = await showProductForm(
-            _context,
-            title: 'Editar producto',
-            name: occupied!.name,
-            price: occupied.price,
-            stock: occupied.stock,
-          );
+          // La hoja de la caja ya trae precio y stock editados.
+          final form =
+              quickEdit ??
+              await showProductForm(
+                _context,
+                title: 'Editar producto',
+                name: occupied!.name,
+                price: occupied.price,
+                stock: occupied.stock,
+              );
           if (form == null) return;
           await api.updateProduct(
-            occupied.dbId!,
+            occupied!.dbId!,
             name: form.name,
             price: form.price,
             stock: form.stock,
@@ -163,6 +178,8 @@ class StoreEditController extends ChangeNotifier {
           _toast('Cambios guardados.');
         case SlotAction.remove:
           await _removeProduct(occupied!);
+        case SlotAction.finish:
+          break;
         case SlotAction.create:
           final categories = await api.loadCategories();
           final context = _context;
@@ -171,6 +188,7 @@ class StoreEditController extends ChangeNotifier {
             context,
             title: 'Producto nuevo',
             categories: categories,
+            location: slotPlace(box),
           );
           if (form == null) return;
           await api.createInSlot(

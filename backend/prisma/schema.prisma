@@ -15,6 +15,8 @@ model assistant_requests {
   status           assistant_requests_status @default(RECEIVED)
   recipe_name      String?                   @db.VarChar(150)
   response_message String?                   @db.Text
+  /// Filas de inventario de la respuesta del admin (producto, stock, estado).
+  response_rows    Json?
   recommendations_ready Boolean              @default(false)
   created_at       DateTime                  @default(now()) @db.Timestamp(0)
   updated_at       DateTime                  @default(now()) @db.Timestamp(0)
@@ -351,6 +353,7 @@ model users {
   substitution_events                         substitution_events[]
   user_preferences                            user_preferences[]
   assistant_choice_events                     assistant_choice_events[]
+  assistant_settings                          user_assistant_settings?
   users_users_created_by_user_idTousers       users?                @relation("users_created_by_user_idTousers", fields: [created_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_created_by")
   other_users_users_created_by_user_idTousers users[]               @relation("users_created_by_user_idTousers")
   users_users_updated_by_user_idTousers       users?                @relation("users_updated_by_user_idTousers", fields: [updated_by_user_id], references: [user_id], onDelete: Restrict, map: "fk_users_updated_by")
@@ -447,4 +450,15 @@ enum substitution_events_reason {
   USER_PREFERENCE
   SIMILAR_PRODUCT
   OTHER
+}
+
+/// Cómo elige el asistente para cada usuario (interruptores de Perfil).
+/// Sin fila, el asistente se comporta como siempre (valores por defecto).
+model user_assistant_settings {
+  user_id             Int      @id
+  prioritize_cheapest Boolean  @default(false)
+  remember_brands     Boolean  @default(true)
+  created_at          DateTime @default(now()) @db.Timestamp(0)
+  updated_at          DateTime @default(now()) @updatedAt @db.Timestamp(0)
+  user                users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: Cascade, map: "fk_user_assistant_settings_user")
 }

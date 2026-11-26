@@ -12,6 +12,8 @@ class CatalogProduct {
     required this.category,
     required this.price,
     required this.stock,
+    this.section,
+    this.shelf,
   });
 
   final int productId;
@@ -20,6 +22,10 @@ class CatalogProduct {
   final String category;
   final double price;
   final double stock;
+
+  /// Primera ubicación del producto en la sucursal.
+  final String? section;
+  final String? shelf;
 }
 
 /// Lee de la API los productos de la sucursal cuyo modelo 3D es [assetPath].
@@ -123,11 +129,7 @@ class CatalogApi {
   }) => _write(
     'PATCH',
     '/products/$productId',
-    body: {
-      'name': ?name,
-      'price': ?price,
-      'stock_quantity': ?stock,
-    },
+    body: {'name': ?name, 'price': ?price, 'stock_quantity': ?stock},
     okStatus: {200},
     fallback: 'No se pudo guardar el producto.',
   );
@@ -136,7 +138,8 @@ class CatalogApi {
   Future<Map<int, String>> loadCategories() async {
     final options = await _get('/products/options') as Map<String, dynamic>;
     return {
-      for (final c in (options['categories'] as List).cast<Map<String, dynamic>>())
+      for (final c
+          in (options['categories'] as List).cast<Map<String, dynamic>>())
         (c['category_id'] as num).toInt(): c['name'] as String,
     };
   }
@@ -163,6 +166,8 @@ class CatalogApi {
           category: p['category_name'] as String,
           price: (p['price'] as num).toDouble(),
           stock: (p['stock_quantity'] as num).toDouble(),
+          section: _firstLocation(p)?['section_name'] as String?,
+          shelf: _firstLocation(p)?['shelf'] as String?,
         ),
     };
     return CatalogSnapshot(
@@ -175,6 +180,11 @@ class CatalogApi {
     );
   }
 }
+
+Map<String, dynamic>? _firstLocation(Map<String, dynamic> product) =>
+    (product['locations'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .firstOrNull;
 
 /// Productos de una sucursal y qué producto ocupa cada espacio del modelo.
 class CatalogSnapshot {

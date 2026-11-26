@@ -50,9 +50,17 @@ class FocusProductRequest extends MapRequest {
 }
 
 class ShowRouteRequest extends MapRequest {
-  const ShowRouteRequest(this.route);
+  const ShowRouteRequest(this.route, {this.tracking = true});
 
   final ShoppingRoute route;
+
+  /// False si el usuario eligió ver solo la ruta, sin seguir sus pasos.
+  final bool tracking;
+}
+
+/// El admin pide entrar en «Editar tienda» desde otra pestaña.
+class StartEditRequest extends MapRequest {
+  const StartEditRequest();
 }
 
 final mapRequestProvider = NotifierProvider<MapRequestNotifier, MapRequest?>(
@@ -100,6 +108,8 @@ final storeModelProvider = FutureProvider.autoDispose<StoreModel>((ref) async {
         price: data.price,
         stock: data.stock,
         dbId: data.productId,
+        section: data.section,
+        shelf: data.shelf,
       ),
     );
   }

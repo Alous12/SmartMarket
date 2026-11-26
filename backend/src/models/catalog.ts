@@ -85,6 +85,8 @@ export interface AdminInventoryQuery {
 }
 
 export interface AdminInventoryProduct {
+  /** Id del producto, para enlazar la fila con el mapa. */
+  product_id?: number;
   name: string;
   sku: string;
   brand: string | null;

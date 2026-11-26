@@ -11,6 +11,26 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'http://10.0.2.2:3000/api',
 );
 
+/// Interruptores de Perfil que ajustan cómo elige el asistente.
+class AssistantSettings {
+  const AssistantSettings({
+    required this.prioritizeCheapest,
+    required this.rememberBrands,
+  });
+
+  /// El precio manda siempre al sugerir productos.
+  final bool prioritizeCheapest;
+
+  /// Se sugieren los productos que el usuario repite.
+  final bool rememberBrands;
+
+  factory AssistantSettings.fromJson(Map<String, dynamic> json) =>
+      AssistantSettings(
+        prioritizeCheapest: json['prioritize_cheapest'] as bool,
+        rememberBrands: json['remember_brands'] as bool,
+      );
+}
+
 class UserApiException implements Exception {
   const UserApiException(this.message);
 
@@ -131,6 +151,67 @@ class UserApi {
     );
     // Sin contenido si salió bien; si no, el cuerpo trae el error.
     if (response.statusCode != 204) _decodeResponse(response);
+  }
+
+  /// Cambia los datos de otra cuenta (solo admin): `PATCH /users/:userId`.
+  /// Solo se envía lo que no es null; `status` en false desactiva la cuenta.
+  Future<User> updateUser(
+    int userId, {
+    String? name,
+    String? lastName,
+    String? email,
+    bool? status,
+  }) async {
+    final response = await _send(
+      () async => _client.patch(
+        _usersUri.replace(path: '${_usersUri.path}/$userId'),
+        headers: await _authHeaders(json: true),
+        body: jsonEncode({
+          'name': ?name,
+          'last_name': ?lastName,
+          'email': ?email,
+          'status': ?status,
+        }),
+      ),
+    );
+    return _readUser(_decodeResponse(response));
+  }
+
+  /// Ajustes del asistente de la persona con la sesión iniciada.
+  Future<AssistantSettings> getAssistantSettings() async {
+    final response = await _send(
+      () async => _client.get(_settingsUri, headers: await _authHeaders()),
+    );
+    return _readSettings(_decodeResponse(response));
+  }
+
+  /// Cambia uno o ambos interruptores; solo se envía lo que no es null.
+  Future<AssistantSettings> updateAssistantSettings({
+    bool? prioritizeCheapest,
+    bool? rememberBrands,
+  }) async {
+    final response = await _send(
+      () async => _client.patch(
+        _settingsUri,
+        headers: await _authHeaders(json: true),
+        body: jsonEncode({
+          'prioritize_cheapest': ?prioritizeCheapest,
+          'remember_brands': ?rememberBrands,
+        }),
+      ),
+    );
+    return _readSettings(_decodeResponse(response));
+  }
+
+  Uri get _settingsUri =>
+      _usersUri.replace(path: '${_usersUri.path}/me/assistant-settings');
+
+  AssistantSettings _readSettings(Map<String, dynamic> body) {
+    try {
+      return AssistantSettings.fromJson(body['data'] as Map<String, dynamic>);
+    } on Object {
+      throw const UserApiException('El servidor devolvió ajustes inválidos.');
+    }
   }
 
   Uri get _profileUri => _usersUri.replace(path: '${_usersUri.path}/me');

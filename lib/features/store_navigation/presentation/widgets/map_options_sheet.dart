@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/section_label.dart';
 import '../../domain/entities/store_model.dart';
 import 'store_segments.dart';
 
@@ -31,6 +33,7 @@ class ToggleEditAction extends MapAction {
 }
 
 /// Herramientas del mapa que no aparecen en el diseño principal: cambio de
+/// sucursal, cámara, ajustes del mapa y accesos según el rol.
 
 class MapOptionsSheet extends StatelessWidget {
   const MapOptionsSheet({
@@ -74,11 +77,8 @@ class MapOptionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const sectionStyle = TextStyle(
-      color: AppTheme.ink,
-      fontSize: 16,
-      fontWeight: FontWeight.w600,
-    );
+    // Los ajustes de desarrollo solo los ven el admin o una compilación de depuración.
+    final showDeveloperTools = isAdmin || kDebugMode;
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
@@ -86,17 +86,22 @@ class MapOptionsSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Text(
+              'Opciones del mapa',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
             if (!storeLocked) ...[
-              const Text('Supermercado', style: sectionStyle),
+              const SectionLabel('Supermercado'),
               const SizedBox(height: 10),
               StoreSegments(
                 store: store,
                 onChanged: (value) =>
                     Navigator.pop(context, SelectStoreAction(value)),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
             ],
-            const Text('Cámara', style: sectionStyle),
+            const SectionLabel('Cámara'),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -123,58 +128,141 @@ class MapOptionsSheet extends StatelessWidget {
                 _ToolButton(Icons.center_focus_strong, 'Centrar mapa', onReset),
               ],
             ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Un dedo desplaza el mapa'),
-              subtitle: const Text('Si está apagado, un dedo gira la cámara'),
+            const SizedBox(height: 24),
+            const SectionLabel('Mapa'),
+            const SizedBox(height: 4),
+            _SwitchRow(
+              title: 'Un dedo desplaza el mapa',
+              subtitle: 'Si está apagado, un dedo gira la cámara',
               value: panWithOneFinger,
-              onChanged: (_) => onToggleMode(),
+              onChanged: onToggleMode,
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Mostrar nodos de ruta'),
-              value: showNodes,
-              onChanged: (_) => onToggleNodes(),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Rendimiento 3D'),
-              value: showMetrics,
-              onChanged: (_) => onToggleMetrics(),
-            ),
-            const Divider(height: 24),
+            if (showDeveloperTools) ...[
+              _SwitchRow(
+                title: 'Mostrar nodos de ruta',
+                value: showNodes,
+                onChanged: onToggleNodes,
+              ),
+              _SwitchRow(
+                title: 'Rendimiento 3D',
+                value: showMetrics,
+                onChanged: onToggleMetrics,
+              ),
+            ],
+            const SizedBox(height: 16),
             if (!isAdmin)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.add_road),
-                title: const Text('Armar mi ruta'),
-                trailing: const Icon(Icons.chevron_right),
+              _ActionRow(
+                icon: Icons.add_road,
+                title: 'Armar mi ruta',
                 onTap: () => Navigator.pop(context, const PickRouteAction()),
               ),
             if (isAdmin) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.edit_location_alt_outlined),
-                title: Text(editing ? 'Terminar edición' : 'Editar tienda'),
-                trailing: const Icon(Icons.chevron_right),
+              const SectionLabel('Administración'),
+              const SizedBox(height: 8),
+              _ActionRow(
+                icon: Icons.edit_location_alt_outlined,
+                title: editing ? 'Terminar edición' : 'Editar tienda',
                 onTap: () => Navigator.pop(context, const ToggleEditAction()),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.people_outline),
-                title: const Text('Usuarios'),
-                trailing: const Icon(Icons.chevron_right),
+              _ActionRow(
+                icon: Icons.people_outline,
+                title: 'Usuarios',
                 onTap: () => Navigator.pop(context, const OpenUsersAction()),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.inventory_outlined),
-                title: const Text('Panel de administración'),
-                trailing: const Icon(Icons.chevron_right),
+              _ActionRow(
+                icon: Icons.inventory_outlined,
+                title: 'Panel de administración',
                 onTap: () => Navigator.pop(context, const OpenStaffAction()),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      activeThumbColor: Colors.white,
+      activeTrackColor: AppTheme.green,
+      title: Text(
+        title,
+        style: const TextStyle(
+          color: AppTheme.ink,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 13),
+            ),
+      value: value,
+      onChanged: (_) => onChanged(),
+    );
+  }
+}
+
+/// Acceso con icono en un cuadro tintado.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.radiusS),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppTheme.tint,
+                borderRadius: BorderRadius.circular(AppTheme.radiusS),
+              ),
+              child: Icon(icon, color: AppTheme.green, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: AppTheme.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: AppTheme.muted),
           ],
         ),
       ),
@@ -196,9 +284,12 @@ class _ToolButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon, color: AppTheme.ink),
       style: IconButton.styleFrom(
+        backgroundColor: Colors.white,
         side: const BorderSide(color: AppTheme.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusS),
+        ),
+        minimumSize: const Size(52, 52),
       ),
     );
   }

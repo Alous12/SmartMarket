@@ -13,7 +13,25 @@ class SmartMarketApp extends ConsumerWidget {
       title: 'SmartMarket',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      scrollBehavior: const _NoStretchScrollBehavior(),
       routerConfig: ref.watch(appRouterProvider),
     );
   }
+}
+
+/// Las listas se detienen en el borde: sin el estiramiento de Android ni el
+/// brillo al llegar al final.
+class _NoStretchScrollBehavior extends MaterialScrollBehavior {
+  const _NoStretchScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const ClampingScrollPhysics();
 }

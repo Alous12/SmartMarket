@@ -11,6 +11,8 @@ class IngredientProductOption {
     required this.ingredientName,
     required this.isSubstitute,
     required this.selected,
+    this.sectionName,
+    this.shelf,
   });
 
   final int productId;
@@ -23,6 +25,10 @@ class IngredientProductOption {
   final bool isSubstitute;
   final bool selected;
 
+  /// Sección y estante del producto en su sucursal.
+  final String? sectionName;
+  final String? shelf;
+
   factory IngredientProductOption.fromJson(Map<String, dynamic> json) =>
       IngredientProductOption(
         productId: json['product_id'] as int,
@@ -34,6 +40,8 @@ class IngredientProductOption {
         ingredientName: json['ingredient_name'] as String,
         isSubstitute: json['is_substitute'] as bool,
         selected: json['selected'] as bool,
+        sectionName: json['section_name'] as String?,
+        shelf: json['shelf'] as String?,
       );
 }
 
@@ -123,6 +131,8 @@ class ShoppingRouteStop {
     required this.productId,
     required this.productName,
     required this.isSubstitute,
+    this.sectionName,
+    this.shelf,
   });
 
   final int itemId;
@@ -133,6 +143,10 @@ class ShoppingRouteStop {
   /// El producto reemplaza a un ingrediente que no hay en la sucursal.
   final bool isSubstitute;
 
+  /// Sección y estante del producto en la sucursal.
+  final String? sectionName;
+  final String? shelf;
+
   factory ShoppingRouteStop.fromJson(Map<String, dynamic> json) {
     return ShoppingRouteStop(
       itemId: json['item_id'] as int,
@@ -140,6 +154,8 @@ class ShoppingRouteStop {
       productId: json['product_id'] as int,
       productName: json['product_name'] as String,
       isSubstitute: json['is_substitute'] as bool,
+      sectionName: json['section_name'] as String?,
+      shelf: json['shelf'] as String?,
     );
   }
 }
@@ -187,10 +203,18 @@ class RecipeAvailability {
     required this.branchId,
     required this.items,
     this.routes = const [],
+    this.preferLowerPrice = false,
+    this.frequentProducts = const {},
   });
 
   final int branchId;
   final List<IngredientAvailability> items;
+
+  /// El usuario suele elegir lo más barato (aprendido o elegido en Perfil).
+  final bool preferLowerPrice;
+
+  /// Producto -> veces que el usuario lo eligió (solo con «Recordar mis marcas»).
+  final Map<int, int> frequentProducts;
 
   /// Un recorrido por supermercado con algo de la lista, de mejor a peor.
   final List<ShoppingRoute> routes;
@@ -207,6 +231,20 @@ class RecipeAvailability {
             in (json['routes'] as List).cast<Map<String, dynamic>>())
           ShoppingRoute.fromJson(route),
       ],
+      preferLowerPrice:
+          (json['assistant_profile']
+                  as Map<String, dynamic>?)?['prefer_lower_price']
+              as bool? ??
+          false,
+      frequentProducts: {
+        for (final entry
+            in ((json['assistant_profile']
+                            as Map<String, dynamic>?)?['frequent_products']
+                        as List? ??
+                    const [])
+                .cast<Map<String, dynamic>>())
+          (entry['product_id'] as num).toInt(): (entry['times'] as num).toInt(),
+      },
     );
   }
 

@@ -6,6 +6,7 @@ import {pointAt} from './route_path.js';
 
 const FOLLOW_SPEED = 1.3;                // paso de una persona en el supermercado
 const MAX_FOLLOW_SPEED = 3.5;            // al confirmar una parada lejana se ve caminar el tramo
+const EDIT_WALK_SPEED = 3.2;            // el administrador recorre la tienda a paso rápido
 const PAINT_STEP = 0.1;                  // cada cuánto se pinta lo recorrido (metros)
 
 export function buildAvatar() {
@@ -175,13 +176,27 @@ export function stepFollow(now) {
   follow.active = moving || Math.abs(turn) > 0.01;
 }
 
+/** Termina de golpe la caminata en curso: el avatar queda en su último punto. */
+export function finishWalk() {
+  const {avatar, walk} = S;
+  if (!walk || !avatar) return;
+  const end = walk.points[walk.points.length - 1];
+  if (end) {
+    followAvatar(end.clone().sub(avatar.position));
+    avatar.position.copy(end);
+  }
+  S.walk = null;
+  setWalking(false);
+}
+
 export function stepWalk(now) {
   const {avatar, walk} = S;
   const dt = Math.min(0.1, (now - walk.last) / 1000);
   walk.last = now;
-  S.person?.mixer.update(dt);
+  // La animación de las piernas acompaña al paso más rápido.
+  S.person?.mixer.update(dt * EDIT_WALK_SPEED / FOLLOW_SPEED);
   const before = avatar.position.clone();
-  let move = FOLLOW_SPEED * dt;
+  let move = EDIT_WALK_SPEED * dt;
   while (move > 0 && walk.index < walk.points.length) {
     const target = walk.points[walk.index];
     const direction = target.clone().sub(avatar.position);

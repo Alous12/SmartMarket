@@ -23,22 +23,19 @@ class DeviceMotionSensors implements MotionSensors {
   const DeviceMotionSensors();
 
   @override
-  Stream<MotionSample> get acceleration =>
-      accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval).map(
-        (event) => MotionSample(event.x, event.y, event.z, event.timestamp),
-      );
+  Stream<MotionSample> get acceleration => accelerometerEventStream(
+    samplingPeriod: SensorInterval.gameInterval,
+  ).map((event) => MotionSample(event.x, event.y, event.z, event.timestamp));
 
   @override
-  Stream<MotionSample> get rotation =>
-      gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval).map(
-        (event) => MotionSample(event.x, event.y, event.z, event.timestamp),
-      );
+  Stream<MotionSample> get rotation => gyroscopeEventStream(
+    samplingPeriod: SensorInterval.gameInterval,
+  ).map((event) => MotionSample(event.x, event.y, event.z, event.timestamp));
 
   @override
-  Stream<MotionSample> get magnetic =>
-      magnetometerEventStream(samplingPeriod: SensorInterval.gameInterval).map(
-        (event) => MotionSample(event.x, event.y, event.z, event.timestamp),
-      );
+  Stream<MotionSample> get magnetic => magnetometerEventStream(
+    samplingPeriod: SensorInterval.gameInterval,
+  ).map((event) => MotionSample(event.x, event.y, event.z, event.timestamp));
 }
 
 final motionSensorsProvider = Provider<MotionSensors>(

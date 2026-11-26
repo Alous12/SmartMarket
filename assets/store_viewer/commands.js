@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {S, UP, home, send, products, productBoxes, boxMeshes, requestRender} from './state.js';
 import {animateTo, applyInsets, offsetFromTarget, views} from './camera.js';
 import {selectProduct} from './products.js';
-import {buildAvatar, setGhosts, setPose, setWalking} from './avatar.js';
+import {buildAvatar, finishWalk, setGhosts, setPose, setWalking} from './avatar.js';
 import {showRoute} from './route_overlay.js';
 
 // Comandos que Flutter invoca vía window.smartMarket (nombres y argumentos estables).
@@ -91,6 +91,9 @@ export function createCommands(dispose) {
       const {nodes = [], token} = args ?? {};
       const points = nodes.map(n => S.routeOverlay.positions.get(String(n))).filter(Boolean);
       if (!S.avatar || !points.length) { send({type: 'avatarArrived', token}); return false; }
+      // Si sigue caminando el tramo anterior, se termina ahí: así el nuevo
+      // recorrido sale desde su primer nodo y no cruza los estantes en diagonal.
+      finishWalk();
       S.walk = {points, index: 0, last: performance.now(), token};
       setWalking(true);
       requestRender();
