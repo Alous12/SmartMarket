@@ -25,12 +25,12 @@ class StoreEditController extends ChangeNotifier {
   StoreEditController({
     required this.ref,
     required this.viewport,
-    required this.onAisleView,
+    required this.onNavigationView,
   });
 
   final WidgetRef ref;
   final SupermarketViewportState? Function() viewport;
-  final VoidCallback onAisleView;
+  final VoidCallback onNavigationView;
 
   bool editing = false;
   bool busy = false;
@@ -56,7 +56,7 @@ class StoreEditController extends ChangeNotifier {
     ref.read(navigationSessionProvider.notifier).clear();
     viewport()?.setEditMode(editing, _avatarNode);
     viewport()?.carry(false);
-    if (editing) onAisleView();
+    if (editing) onNavigationView();
   }
 
   void dropCarry() {
@@ -82,10 +82,11 @@ class StoreEditController extends ChangeNotifier {
     notifyListeners();
     try {
       await _walkTo(model, box);
-      if (!_mounted) return;
+      final context = _context;
+      if (!context.mounted) return;
       viewport()?.selectProduct(box.id);
       final action = await showSlotActions(
-        _context,
+        context,
         product: occupied,
         carrying: carrying,
       );
@@ -164,9 +165,10 @@ class StoreEditController extends ChangeNotifier {
           await _removeProduct(occupied!);
         case SlotAction.create:
           final categories = await api.loadCategories();
-          if (!_mounted) return;
+          final context = _context;
+          if (!context.mounted) return;
           final form = await showProductForm(
-            _context,
+            context,
             title: 'Producto nuevo',
             categories: categories,
           );

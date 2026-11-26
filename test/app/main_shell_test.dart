@@ -41,8 +41,23 @@ class _Repository implements StoreModelRepository {
         materials: 0,
         routeNodeIds: const [],
         productIds: const [],
+        routeNodes: [
+          StoreRouteNode(
+            id: 'node_acceso',
+            x: 0,
+            y: 0,
+            z: 0,
+            neighbors: const [],
+          ),
+        ],
         products: [
-          StoreProduct(id: 'p1', name: 'Leche de ${store.shortTitle}'),
+          StoreProduct(
+            id: 'p1',
+            name: 'Leche de ${store.shortTitle}',
+            category: 'Lácteos',
+            price: 2,
+            stock: 3,
+          ),
         ],
       ),
     );
@@ -169,8 +184,18 @@ void main() {
     );
 
     expect(find.byType(StoreSegments), findsNothing);
+    expect(find.text('Panel administrador'), findsOneWidget);
+    expect(find.text('Editar tienda'), findsOneWidget);
+
+    await tester.tap(find.text('Editar tienda'));
+    await tester.pump();
+
+    expect(find.text('Editando el supermercado'), findsOneWidget);
+    expect(find.text('2D'), findsOneWidget);
     await _openTab(tester, 'Productos');
 
+    expect(find.text('Resumen del inventario'), findsOneWidget);
+    expect(find.text('Prioridad de reposición'), findsOneWidget);
     expect(find.byType(StoreSegments), findsNothing);
     expect(find.text('Leche de SuperMarket'), findsOneWidget);
     await _closeApp(tester);

@@ -4,7 +4,6 @@ import {S, send, boxMeshes, ghosts, requestRender} from './state.js';
 import {clearRoute, paintRoute} from './route_overlay.js';
 import {pointAt} from './route_path.js';
 
-const AVATAR_SPEED = 4;                  // metros por segundo
 const FOLLOW_SPEED = 1.3;                // paso de una persona en el supermercado
 const MAX_FOLLOW_SPEED = 3.5;            // al confirmar una parada lejana se ve caminar el tramo
 const PAINT_STEP = 0.1;                  // cada cuánto se pinta lo recorrido (metros)
@@ -80,6 +79,13 @@ export function setWalking(walking) {
 
 const shortestTurn = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
+function followAvatar(delta) {
+  if (!S.animation && S.controls) {
+    S.camera.position.add(delta);
+    S.controls.target.add(delta);
+  }
+}
+
 /** Coloca al muñeco en una ruta nueva, en la pose indicada. */
 export function startFollowing(path, pose) {
   S.avatar ??= buildAvatar();
@@ -140,13 +146,11 @@ export function stepFollow(now) {
   follow.distance += move;
   const {x, z} = pointAt(follow.path, follow.distance);
   // La cámara acompaña al muñeco, como un navegador en modo navegación.
-  if (!S.animation && S.controls) {
-    const dx = x - S.avatar.position.x, dz = z - S.avatar.position.z;
-    S.camera.position.x += dx;
-    S.camera.position.z += dz;
-    S.controls.target.x += dx;
-    S.controls.target.z += dz;
-  }
+  followAvatar(new THREE.Vector3(
+    x - S.avatar.position.x,
+    0,
+    z - S.avatar.position.z,
+  ));
   S.avatar.position.set(x, follow.floor, z);
 
   const turn = shortestTurn(S.avatar.rotation.y, follow.rotation);
@@ -177,7 +181,7 @@ export function stepWalk(now) {
   walk.last = now;
   S.person?.mixer.update(dt);
   const before = avatar.position.clone();
-  let move = AVATAR_SPEED * dt;
+  let move = FOLLOW_SPEED * dt;
   while (move > 0 && walk.index < walk.points.length) {
     const target = walk.points[walk.index];
     const direction = target.clone().sub(avatar.position);
@@ -193,7 +197,7 @@ export function stepWalk(now) {
     }
   }
   const delta = avatar.position.clone().sub(before);
-  if (!S.animation) { S.camera.position.add(delta); S.controls.target.add(delta); }
+  followAvatar(delta);
   if (walk.index >= walk.points.length) {
     const token = walk.token;
     S.walk = null;

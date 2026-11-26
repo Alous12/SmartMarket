@@ -62,3 +62,54 @@ export interface ProductFilters {
   categoryId?: number;
   productIds?: number[];
 }
+
+export type AdminInventoryOperation = 'list' | 'count' | 'stock' | 'value';
+export type AdminInventoryStockFilter = 'all' | 'low' | 'out';
+export type AdminInventorySort =
+  | 'name'
+  | 'stock_asc'
+  | 'stock_desc'
+  | 'price_asc'
+  | 'price_desc'
+  | 'value_desc';
+
+export interface AdminInventoryQuery {
+  operation: AdminInventoryOperation;
+  searchTerms: string[];
+  category: string | null;
+  stock: AdminInventoryStockFilter;
+  sort: AdminInventorySort;
+  limit: number;
+  groupByCategory: boolean;
+  includeLocations: boolean;
+}
+
+export interface AdminInventoryProduct {
+  name: string;
+  sku: string;
+  brand: string | null;
+  category: string;
+  price: number;
+  unit: string;
+  stock: number;
+  locations: Array<{ section: string; shelf: string | null }>;
+}
+
+export interface AdminInventoryCategorySummary {
+  category: string;
+  products: number;
+  stock: number;
+  value: number;
+}
+
+export interface AdminInventoryResult {
+  summary: {
+    products: number;
+    stock: number;
+    value: number;
+    lowStockProducts: number;
+    outOfStockProducts: number;
+  };
+  products: AdminInventoryProduct[];
+  categories: AdminInventoryCategorySummary[];
+}

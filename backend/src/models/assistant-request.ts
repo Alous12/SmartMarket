@@ -15,7 +15,7 @@ export interface AssistantRequest {
   status: AssistantRequestStatus;
   /** Receta identificada por la IA; null mientras no exista. */
   recipe_name: string | null;
-  /** Mensaje para el usuario cuando la petición se rechaza o falla. */
+  /** Respuesta de la IA o mensaje para el usuario cuando la petición se rechaza o falla. */
   response_message: string | null;
   recommendations_ready?: boolean;
   created_at: Date;

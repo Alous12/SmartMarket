@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../auth/data/auth_api.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../store_navigation/presentation/providers/store_model_provider.dart';
 import '../../data/assistant_api.dart';
 import '../../domain/entities/recipe_availability.dart';
@@ -158,11 +159,17 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     final branchId = ref.watch(assistantBranchIdProvider).value;
     final chat = ref.watch(assistantChatProvider);
     final entries = chat.entries;
+    final isAdmin =
+        ref.watch(authControllerProvider).asData?.value?.isAdmin ?? false;
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            _AssistantHeader(repeating: _repeating, onHistory: _openHistory),
+            _AssistantHeader(
+              repeating: _repeating,
+              onHistory: _openHistory,
+              admin: isAdmin,
+            ),
             ref
                 .watch(assistantModelsProvider)
                 .when(
@@ -201,6 +208,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
               child: entries.isEmpty
                   ? _Welcome(
                       onSuggestion: (text) => _requestController.text = text,
+                      admin: isAdmin,
                     )
                   : ListView.separated(
                       reverse: true,
@@ -239,6 +247,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                 controller: _requestController,
                 sending: chat.sending,
                 onSend: _sendRequest,
+                admin: isAdmin,
               ),
             ),
           ],
@@ -250,15 +259,21 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
 
 /// Se muestra mientras el chat está vacío.
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.onSuggestion});
+  const _Welcome({required this.onSuggestion, required this.admin});
 
   static const _suggestions = [
     'Quiero preparar arroz con leche',
     'Quiero preparar lasaña de carne',
     'Quiero preparar un guiso de carne de res',
   ];
+  static const _adminSuggestions = [
+    '¿Qué productos están por agotarse?',
+    'Haz un resumen del inventario',
+    '¿Cuáles son los productos con más stock?',
+  ];
 
   final ValueChanged<String> onSuggestion;
+  final bool admin;
 
   @override
   Widget build(BuildContext context) {
@@ -270,8 +285,10 @@ class _Welcome extends StatelessWidget {
           children: [
             const AssistantAvatar(size: 56),
             const SizedBox(height: 14),
-            const Text(
-              '¿Qué quieres cocinar hoy?',
+            Text(
+              admin
+                  ? '¿Qué quieres saber de tu supermercado?'
+                  : '¿Qué quieres cocinar hoy?',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppTheme.ink,
@@ -280,8 +297,10 @@ class _Welcome extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Te digo qué supermercado tiene los ingredientes y te llevo por la ruta.',
+            Text(
+              admin
+                  ? 'Consulta el inventario, categorías, stock y ubicaciones de tu sucursal.'
+                  : 'Te digo qué supermercado tiene los ingredientes y te llevo por la ruta.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.muted, fontSize: 15),
             ),
@@ -291,7 +310,8 @@ class _Welcome extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final suggestion in _suggestions)
+                for (final suggestion
+                    in admin ? _adminSuggestions : _suggestions)
                   ActionChip(
                     label: Text(suggestion),
                     backgroundColor: Colors.white,
@@ -336,10 +356,15 @@ class _RoundButton extends StatelessWidget {
 }
 
 class _AssistantHeader extends StatelessWidget {
-  const _AssistantHeader({required this.repeating, required this.onHistory});
+  const _AssistantHeader({
+    required this.repeating,
+    required this.onHistory,
+    required this.admin,
+  });
 
   final bool repeating;
   final VoidCallback onHistory;
+  final bool admin;
 
   @override
   Widget build(BuildContext context) {
@@ -355,11 +380,11 @@ class _AssistantHeader extends StatelessWidget {
             ),
             const SizedBox(width: 14),
           ],
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                const Row(
                   children: [
                     Icon(
                       Icons.auto_awesome,
@@ -381,28 +406,32 @@ class _AssistantHeader extends StatelessWidget {
                     ),
                   ],
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  'Arma tu lista a partir de un plato',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 14),
+                  admin
+                      ? 'Consulta el inventario de tu sucursal'
+                      : 'Arma tu lista a partir de un plato',
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 14),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          _RoundButton(
-            tooltip: 'Historial de recetas',
-            onTap: repeating ? null : onHistory,
-            child: repeating
-                ? const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppTheme.green,
-                    ),
-                  )
-                : const Icon(Icons.history, color: AppTheme.ink),
-          ),
+          if (!admin) ...[
+            const SizedBox(width: 8),
+            _RoundButton(
+              tooltip: 'Historial de recetas',
+              onTap: repeating ? null : onHistory,
+              child: repeating
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.green,
+                      ),
+                    )
+                  : const Icon(Icons.history, color: AppTheme.ink),
+            ),
+          ],
         ],
       ),
     );
@@ -414,11 +443,13 @@ class _RequestField extends StatelessWidget {
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.admin,
   });
 
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
+  final bool admin;
 
   @override
   Widget build(BuildContext context) {
@@ -434,24 +465,26 @@ class _RequestField extends StatelessWidget {
             keyboardType: TextInputType.multiline,
             textCapitalization: TextCapitalization.sentences,
             style: const TextStyle(color: AppTheme.ink, fontSize: 17),
-            decoration: const InputDecoration(
-              hintText: 'Escribe un plato o un producto…',
-              hintStyle: TextStyle(color: AppTheme.muted, fontSize: 17),
+            decoration: InputDecoration(
+              hintText: admin
+                  ? 'Pregunta lo que quieras sobre tu sucursal…'
+                  : 'Escribe un plato o un producto…',
+              hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 17),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: EdgeInsets.symmetric(
+              contentPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 17,
               ),
-              border: OutlineInputBorder(
+              border: const OutlineInputBorder(
                 borderRadius: radius,
                 borderSide: BorderSide(color: AppTheme.border),
               ),
-              enabledBorder: OutlineInputBorder(
+              enabledBorder: const OutlineInputBorder(
                 borderRadius: radius,
                 borderSide: BorderSide(color: AppTheme.border),
               ),
-              focusedBorder: OutlineInputBorder(
+              focusedBorder: const OutlineInputBorder(
                 borderRadius: radius,
                 borderSide: BorderSide(color: AppTheme.lime, width: 1.5),
               ),

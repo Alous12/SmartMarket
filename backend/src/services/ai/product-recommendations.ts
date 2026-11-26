@@ -68,6 +68,7 @@ export async function recommendProducts(
       r: prompt, p: compactIntents, ip: compactPreferences, h: compactHistory, c: compactCandidates,
     }),
     responseSchema: schema,
+    maxOutputTokens: 1024,
   };
   for (let attempt = 0; attempt < 2; attempt++) {
     const output = await generateJson(input, model);

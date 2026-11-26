@@ -75,7 +75,7 @@ export const views = {
   inicio: () => ({position: home.position, target: home.target}),
   superior: () => {
     // Con una ruta en curso, como un navegador: centrada en la persona y más cerca.
-    if (S.follow && S.avatar) {
+    if ((S.follow || S.editMode) && S.avatar) {
       const target = S.avatar.position.clone().setY(bounds.min.y);
       return {
         position: target.clone().add(new THREE.Vector3(0, fitDistance(Math.min(S.radius, 14)), 0.01)),

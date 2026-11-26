@@ -22,11 +22,18 @@ class _SignedInController extends AuthController {
   Future<void> logout() async => state = const AsyncData(null);
 }
 
+class _AdminController extends _SignedInController {
+  @override
+  Future<AuthSession?> build() async =>
+      const AuthSession(token: 'admin-token', username: 'Admin', role: 'admin');
+}
+
 Future<void> _pumpAssistant(
   WidgetTester tester, {
   MockClientHandler? handler,
   Widget home = const AssistantScreen(),
   Future<int?> Function()? branchId,
+  bool admin = false,
 }) async {
   final client = MockClient(
     handler ?? (request) async => fail('No debería enviarse ninguna petición'),
@@ -34,7 +41,9 @@ Future<void> _pumpAssistant(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        authControllerProvider.overrideWith(_SignedInController.new),
+        authControllerProvider.overrideWith(
+          admin ? _AdminController.new : _SignedInController.new,
+        ),
         assistantApiProvider.overrideWithValue(
           AssistantApi(
             client: client,
@@ -251,6 +260,56 @@ Future<void> _askLasagna(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('el dependiente pregunta libremente sobre su sucursal', (
+    tester,
+  ) async {
+    await _pumpAssistant(tester, admin: true);
+
+    expect(find.text('¿Qué quieres saber de tu supermercado?'), findsOneWidget);
+    expect(find.text('¿Qué productos están por agotarse?'), findsOneWidget);
+    expect(
+      find.text('Pregunta lo que quieras sobre tu sucursal…'),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Historial de recetas'), findsNothing);
+  });
+
+  testWidgets('muestra una respuesta libre del inventario sin pedir ruta', (
+    tester,
+  ) async {
+    var availabilityRequested = false;
+    await _pumpAssistant(
+      tester,
+      handler: (request) async {
+        if (request.url.path.endsWith('/models')) {
+          return http.Response('{"data":[]}', 200);
+        }
+        if (request.method == 'POST')
+          return _created('¿Qué está por agotarse?');
+        if (request.url.path.endsWith('/availability')) {
+          availabilityRequested = true;
+          return _json(_noStock, 200);
+        }
+        return _json({
+          'request_id': 1,
+          'prompt': '¿Qué está por agotarse?',
+          'status': 'COMPLETED',
+          'recipe_name': null,
+          'response_message': '1. Leche: 2 unidades.\n2. Arroz: 4 unidades.',
+          'ingredients': <Object?>[],
+        }, 200);
+      },
+    );
+
+    await tester.enterText(find.byType(TextField), '¿Qué está por agotarse?');
+    await tester.tap(find.byTooltip('Enviar'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Leche: 2 unidades'), findsOneWidget);
+    expect(find.text('Revisar disponibilidad'), findsNothing);
+    expect(availabilityRequested, isFalse);
+  });
+
   testWidgets('permite excluir y restaurar un producto sugerido', (
     tester,
   ) async {

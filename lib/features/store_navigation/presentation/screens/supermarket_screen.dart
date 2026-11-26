@@ -58,7 +58,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
     _edit = StoreEditController(
       ref: ref,
       viewport: () => _viewport,
-      onAisleView: _showAisleView,
+      onNavigationView: _showTopView,
     )..addListener(() => setState(() {}));
     _motion = RouteMotionController(
       sensors: ref.read(motionSensorsProvider),
@@ -372,6 +372,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       case OpenUsersAction():
         await context.pushNamed('users');
         break;
+      case OpenStaffAction():
+        await context.pushNamed('staff');
+        break;
       case ToggleEditAction():
         _edit.toggle(model);
         break;
@@ -524,7 +527,22 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!isAdmin) ...[
+                if (isAdmin)
+                  InstructionCard(
+                    key: _topPanelKey,
+                    title: _edit.editing
+                        ? 'Editando el supermercado'
+                        : 'Panel administrador',
+                    subtitle: _edit.editing
+                        ? 'Toca una caja para mover o editar'
+                        : 'Mapa y productos de tu sucursal',
+                    icon: Icons.admin_panel_settings_outlined,
+                    value: '${model.metadata.products.length}',
+                    unit: model.metadata.products.length == 1
+                        ? 'producto'
+                        : 'productos',
+                  )
+                else
                   InstructionCard(
                     key: _topPanelKey,
                     title: instruction.title,
@@ -533,8 +551,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
                     value: '${session.pending}',
                     unit: session.pending == 1 ? 'parada' : 'paradas',
                   ),
-                  const SizedBox(height: 20),
-                ],
+                const SizedBox(height: 20),
                 MapButton(
                   tooltip: _topView ? 'Ver en 3D' : 'Vista superior',
                   onPressed: _toggleTopView,
