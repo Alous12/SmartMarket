@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Branch, BranchProduct } from '../src/models/catalog.js';
+import type { AdminInventoryResult, Branch, Category } from '../src/models/catalog.js';
 import {
   buildAdminAssistantInstruction,
+  buildAdminAssistantQueryInstruction,
+  parseAdminAssistantQuery,
   parseAdminAssistantResponse,
 } from '../src/services/ai/admin-assistant.js';
 
@@ -17,37 +19,81 @@ const branch: Branch = {
   model_3d_url: 'centro.glb',
 };
 
-const product: BranchProduct = {
-  product_id: 9,
-  sku: 'LE-9',
-  name: 'Leche',
-  brand: null,
-  price: 2.5,
-  unit_of_measure: 'unidad',
-  image_url: null,
-  category_id: 3,
-  category_name: 'Lácteos',
-  stock_quantity: 2,
-  locations: [{
-    product_location_id: 1,
-    section_id: 4,
-    section_name: 'Fríos',
-    coordinate_x: 1,
-    coordinate_y: 0,
-    coordinate_z: 2,
-    shelf: 'B2',
-  }],
+const categories: Category[] = [
+  { category_id: 3, name: 'Lácteos', description: null },
+];
+
+const query = {
+  operation: 'list' as const,
+  searchTerms: ['leche'],
+  category: 'Lácteos',
+  stock: 'low' as const,
+  sort: 'stock_asc' as const,
+  limit: 20,
+  groupByCategory: false,
+  includeLocations: true,
 };
 
-test('el prompt administrativo incluye solo la sucursal y su inventario', () => {
-  const prompt = buildAdminAssistantInstruction(branch, [product]);
+const inventory: AdminInventoryResult = {
+  summary: {
+    products: 1,
+    stock: 2,
+    value: 5,
+    lowStockProducts: 1,
+    outOfStockProducts: 0,
+  },
+  products: [{
+    name: 'Leche',
+    sku: 'LE-9',
+    brand: null,
+    category: 'Lácteos',
+    price: 2.5,
+    unit: 'unidad',
+    stock: 2,
+    locations: [{ section: 'Fríos', shelf: 'B2' }],
+  }],
+  categories: [],
+};
+
+test('la extracción administrativa envía categorías, no productos', () => {
+  const prompt = buildAdminAssistantQueryInstruction(categories);
+
+  assert.match(prompt, /Lácteos/);
+  assert.match(prompt, /stock=low/);
+  assert.doesNotMatch(prompt, /Leche|LE-9/);
+});
+
+test('valida y normaliza el filtro estructurado', () => {
+  assert.deepEqual(parseAdminAssistantQuery({
+    operation: 'list',
+    search_terms: [' leche ', 'leche'],
+    category: 'Lácteos',
+    stock: 'low',
+    sort: 'stock_asc',
+    limit: 20,
+    group_by_category: false,
+    include_locations: true,
+  }), query);
+  assert.throws(() => parseAdminAssistantQuery({
+    operation: 'delete',
+    search_terms: [],
+    category: null,
+    stock: 'all',
+    sort: 'name',
+    limit: 10,
+    group_by_category: false,
+    include_locations: false,
+  }));
+});
+
+test('el prompt de respuesta solo incluye el inventario filtrado', () => {
+  const prompt = buildAdminAssistantInstruction(branch, query, inventory);
 
   assert.match(prompt, /Sucursal Centro \(ID 7\)/);
-  assert.match(prompt, /Solo puedes usar el inventario JSON/);
-  assert.match(prompt, /resume listas largas/);
-  assert.match(prompt, /"stock":2/);
-  assert.match(prompt, /"estante":"B2"/);
-  assert.doesNotMatch(prompt, /Sucursal Norte/);
+  assert.match(prompt, /"unidades":2/);
+  assert.match(prompt, /"name":"Leche"/);
+  assert.match(prompt, /"shelf":"B2"/);
+  assert.doesNotMatch(prompt, /Inventario actual|Sucursal Norte/);
 });
 
 test('parsea respuestas naturales dinámicas', () => {

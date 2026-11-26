@@ -48,6 +48,19 @@ test('Ollama receives the model, messages and a JSON Schema with null support', 
     { role: 'system', content: 'Solo recetas' },
     { role: 'user', content: 'Lasaña' },
   ]);
+  assert.equal(body.options.num_predict, 4096);
+});
+
+test('permite limitar la salida local por etapa', async () => {
+  let init: RequestInit | undefined;
+  await generateOllamaJson(
+    { ...input, maxOutputTokens: 512 },
+    async (_target, options) => {
+      init = options;
+      return Response.json({ message: { content: '{}' } });
+    },
+  );
+  assert.equal(JSON.parse(String(init?.body)).options.num_predict, 512);
 });
 
 test('rejects missing model, HTTP errors, malformed replies and connection failures', async () => {

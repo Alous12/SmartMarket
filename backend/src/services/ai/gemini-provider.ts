@@ -82,7 +82,7 @@ export async function generateJson(
             contents: [{ role: 'user', parts: [{ text: input.userText }] }],
             generationConfig: {
               temperature: 0.2,
-              maxOutputTokens: 4096,
+              maxOutputTokens: input.maxOutputTokens ?? 4096,
               responseMimeType: 'application/json',
               responseSchema: geminiSchema(input.responseSchema),
             },

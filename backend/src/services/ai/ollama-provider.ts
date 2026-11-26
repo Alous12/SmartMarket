@@ -67,7 +67,7 @@ async function requestOllamaJson(
           { role: 'system', content: input.systemInstruction },
           { role: 'user', content: input.userText },
         ],
-        options: { temperature: 0.2, num_predict: 4096 },
+        options: { temperature: 0.2, num_predict: input.maxOutputTokens ?? 4096 },
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

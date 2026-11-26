@@ -6,6 +6,7 @@ export interface GenerateJsonInput {
   systemInstruction: string;
   userText: string;
   responseSchema: object;
+  maxOutputTokens?: number;
 }
 
 export interface AiModel {

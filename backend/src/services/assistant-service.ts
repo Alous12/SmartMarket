@@ -31,8 +31,11 @@ import { generateIngredientList } from './ingredient-list-service.js';
 import { buildIngredientAvailability } from './ingredient-availability.js';
 import { latestPerRecipe } from './recipe-history.js';
 import {
+  adminAssistantQuerySchema,
   buildAdminAssistantInstruction,
+  buildAdminAssistantQueryInstruction,
   parseAdminAssistantResponse,
+  parseAdminAssistantQuery,
   adminAssistantResponseSchema,
 } from './ai/admin-assistant.js';
 
@@ -56,6 +59,9 @@ export async function submitRequest(
   const assignedBranchId = identity.role === 'admin'
     ? await productRepository.findAdminBranch(identity.userId)
     : null;
+  if (identity.role === 'admin' && prompt.length > maxAnalyzedPromptLength) {
+    throw new HttpError(400, 'La consulta es muy larga. Resume lo que necesitas saber.');
+  }
   if (identity.role === 'admin' && assignedBranchId === null) {
     throw new HttpError(403, 'Tu usuario no tiene una sucursal asignada.');
   }
@@ -141,6 +147,7 @@ async function analyzePrompt(prompt: string, model: AiModel): Promise<RecipeAnal
       : buildRecipeInstruction(catalogNames),
     userText: prompt,
     responseSchema: compact ? compactRecipeResponseSchema : recipeResponseSchema,
+    maxOutputTokens: 3072,
   }, model);
   return compact ? parseCompactRecipeAnalysis(output) : parseRecipeAnalysis(output);
 }
@@ -154,14 +161,31 @@ async function answerAdminQuestion(
   }
   const branch = await catalogRepository.findBranchById(request.branch_id);
   if (!branch) throw new HttpError(404, 'Sucursal no encontrada.');
-  const products = await catalogRepository.findProductsByBranch(
+  const categories = await catalogRepository.findCategories();
+  const queryOutput = await generateJson({
+    systemInstruction: buildAdminAssistantQueryInstruction(categories),
+    userText: request.prompt,
+    responseSchema: adminAssistantQuerySchema,
+    maxOutputTokens: 512,
+  }, model);
+  const query = parseAdminAssistantQuery(queryOutput);
+  if (query.category) {
+    const category = categories.find(
+      (entry) => entry.name.localeCompare(
+        query.category!, undefined, { sensitivity: 'base' },
+      ) === 0,
+    );
+    if (category) query.category = category.name;
+  }
+  const inventory = await catalogRepository.findAdminInventory(
     request.branch_id,
-    {},
+    query,
   );
   const output = await generateJson({
-    systemInstruction: buildAdminAssistantInstruction(branch, products),
+    systemInstruction: buildAdminAssistantInstruction(branch, query, inventory),
     userText: request.prompt,
     responseSchema: adminAssistantResponseSchema,
+    maxOutputTokens: 1200,
   }, model);
   return parseAdminAssistantResponse(output);
 }

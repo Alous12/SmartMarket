@@ -2,6 +2,8 @@ import type { RowDataPacket } from 'mysql2';
 
 import { pool } from '../database/pool.js';
 import type {
+  AdminInventoryQuery,
+  AdminInventoryResult,
   Branch,
   BranchPoint,
   BranchProduct,
@@ -165,4 +167,144 @@ export async function findProductsByBranch(
     stock_quantity: toNumber(row.stock_quantity),
     locations: locations.get(row.product_id) ?? [],
   }));
+}
+
+interface AdminInventoryAggregateRow extends RowDataPacket {
+  products: string | number;
+  stock: string | number;
+  value: string | number;
+  low_stock_products: string | number;
+  out_of_stock_products: string | number;
+}
+
+interface AdminInventoryCategoryRow extends RowDataPacket {
+  category: string;
+  products: string | number;
+  stock: string | number;
+  value: string | number;
+}
+
+const adminSortSql = {
+  name: 'p.name ASC, p.product_id ASC',
+  stock_asc: 'i.stock_quantity ASC, p.name ASC',
+  stock_desc: 'i.stock_quantity DESC, p.name ASC',
+  price_asc: 'p.price ASC, p.name ASC',
+  price_desc: 'p.price DESC, p.name ASC',
+  value_desc: '(p.price * i.stock_quantity) DESC, p.name ASC',
+} as const;
+
+function adminInventoryConditions(query: AdminInventoryQuery): {
+  where: string;
+  params: unknown[];
+} {
+  const conditions = ['p.status = TRUE'];
+  const params: unknown[] = [];
+  if (query.category) {
+    conditions.push('c.name = ?');
+    params.push(query.category);
+  }
+  if (query.stock === 'low') {
+    conditions.push('i.stock_quantity > 0 AND i.stock_quantity <= 5');
+  } else if (query.stock === 'out') {
+    conditions.push('i.stock_quantity = 0');
+  }
+  if (query.searchTerms.length) {
+    conditions.push(
+      `(${query.searchTerms
+        .map(() => '(p.name LIKE ? OR p.sku LIKE ? OR p.brand LIKE ?)')
+        .join(' OR ')})`,
+    );
+    for (const term of query.searchTerms) {
+      const pattern = `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+      params.push(pattern, pattern, pattern);
+    }
+  }
+  return { where: conditions.join(' AND '), params };
+}
+
+export async function findAdminInventory(
+  branchId: number,
+  query: AdminInventoryQuery,
+): Promise<AdminInventoryResult> {
+  const { where, params } = adminInventoryConditions(query);
+  const aggregateParams = [branchId, ...params];
+  const [aggregateRows] = await pool.query<AdminInventoryAggregateRow[]>(
+    `SELECT COUNT(*) AS products,
+            COALESCE(SUM(i.stock_quantity), 0) AS stock,
+            COALESCE(SUM(p.price * i.stock_quantity), 0) AS value,
+            COALESCE(SUM(i.stock_quantity > 0 AND i.stock_quantity <= 5), 0) AS low_stock_products,
+            COALESCE(SUM(i.stock_quantity = 0), 0) AS out_of_stock_products
+     FROM products p
+     JOIN categories c ON c.category_id = p.category_id
+     JOIN inventory i ON i.product_id = p.product_id AND i.branch_id = ?
+     WHERE ${where}`,
+    aggregateParams,
+  );
+  const aggregate = aggregateRows[0]!;
+
+  const categories: AdminInventoryResult['categories'] = [];
+  if (query.groupByCategory) {
+    const [categoryRows] = await pool.query<AdminInventoryCategoryRow[]>(
+      `SELECT c.name AS category, COUNT(*) AS products,
+              COALESCE(SUM(i.stock_quantity), 0) AS stock,
+              COALESCE(SUM(p.price * i.stock_quantity), 0) AS value
+       FROM products p
+       JOIN categories c ON c.category_id = p.category_id
+       JOIN inventory i ON i.product_id = p.product_id AND i.branch_id = ?
+       WHERE ${where}
+       GROUP BY c.category_id, c.name
+       ORDER BY value DESC, products DESC, c.name ASC
+       LIMIT ?`,
+      [...aggregateParams, query.limit],
+    );
+    categories.push(...categoryRows.map((row) => ({
+      category: row.category,
+      products: toNumber(row.products),
+      stock: toNumber(row.stock),
+      value: toNumber(row.value),
+    })));
+  }
+
+  const products: AdminInventoryResult['products'] = [];
+  if (!query.groupByCategory && query.operation === 'list') {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT p.product_id, p.sku, p.name, p.brand, p.price,
+              p.unit_of_measure, c.name AS category_name, i.stock_quantity
+       FROM products p
+       JOIN categories c ON c.category_id = p.category_id
+       JOIN inventory i ON i.product_id = p.product_id AND i.branch_id = ?
+       WHERE ${where}
+       ORDER BY ${adminSortSql[query.sort]}
+       LIMIT ?`,
+      [...aggregateParams, query.limit],
+    );
+    const locations = query.includeLocations
+      ? await findLocations(branchId, rows.map((row) => row.product_id))
+      : new Map<number, ProductLocation[]>();
+    products.push(...rows.map((row) => ({
+      name: String(row.name),
+      sku: String(row.sku),
+      brand: row.brand === null ? null : String(row.brand),
+      category: String(row.category_name),
+      price: toNumber(row.price),
+      unit: String(row.unit_of_measure),
+      stock: toNumber(row.stock_quantity),
+      locations: (locations.get(row.product_id) ?? []).map((location) => ({
+        section: location.section_name,
+        shelf: location.shelf,
+      })),
+    })));
+  }
+
+  return {
+    summary: {
+      products: toNumber(aggregate.products),
+      stock: toNumber(aggregate.stock),
+      value: toNumber(aggregate.value),
+      lowStockProducts: toNumber(aggregate.low_stock_products),
+      outOfStockProducts: toNumber(aggregate.out_of_stock_products),
+    },
+    products,
+    categories,
+  };
 }

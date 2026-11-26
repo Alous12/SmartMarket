@@ -77,6 +77,16 @@ test('HU-14 CC1 y CC2: sends the user text unchanged with the instruction and sc
     type: 'OBJECT',
     properties: { nested: { type: 'OBJECT' } },
   });
+  assert.equal(body.generationConfig.maxOutputTokens, 4096);
+});
+
+test('permite limitar la salida por etapa', async () => {
+  let init: RequestInit | undefined;
+  await generateJson({ ...input, maxOutputTokens: 512 }, async (_target, options) => {
+    init = options;
+    return textReply('{}')(_target, options);
+  });
+  assert.equal(JSON.parse(String(init?.body)).generationConfig.maxOutputTokens, 512);
 });
 
 test('uses GEMINI_MODEL when it is configured', async () => {
