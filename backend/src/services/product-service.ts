@@ -78,7 +78,23 @@ function parseLocation(body: Body): LocationInput {
   };
 }
 
-export function parseNewProduct(rawBody: unknown): NewProduct {
+/** SKU para productos creados desde la app sin uno propio. */
+function generatedSku(): string {
+  return `ADM_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+}
+
+/** Producto nuevo y, si se pidió, el espacio de estante donde va. */
+export interface NewProductRequest {
+  product: NewProduct;
+  slotCode: string | null;
+}
+
+/**
+ * Producto nuevo. La ubicación es opcional: `slot_code` lo pone en un espacio
+ * libre del plano; `section_id` y coordenadas, en un punto libre (formulario del
+ * panel); sin ninguna, queda en el inventario de la sucursal, sin estante.
+ */
+export function parseNewProductRequest(rawBody: unknown): NewProductRequest {
   const body = asRecord(rawBody);
   rejectUnexpected(body, [
     'sku',
@@ -94,21 +110,31 @@ export function parseNewProduct(rawBody: unknown): NewProduct {
     'coordinate_y',
     'coordinate_z',
     'shelf',
+    'slot_code',
   ]);
+  const slotCode = readText(body, 'slot_code', 100, false);
+  const hasCoordinates = ['section_id', 'coordinate_x', 'coordinate_y', 'coordinate_z']
+    .some((field) => body[field] !== undefined);
+  if (slotCode !== null && (hasCoordinates || body.shelf !== undefined)) {
+    throw new HttpError(400, 'Usa slot_code o section_id con coordenadas, no ambos.');
+  }
   return {
-    sku: readText(body, 'sku', 100, true)!,
-    name: readText(body, 'name', 150, true)!,
-    description: readText(body, 'description', 5000, false),
-    brand: readText(body, 'brand', 100, false),
-    price: readNumber(body, 'price', { min: 0, max: 99999999 }),
-    unitOfMeasure: readText(body, 'unit_of_measure', 50, true)!,
-    categoryId: readNumber(body, 'category_id', {
-      min: 1,
-      max: 2147483647,
-      integer: true,
-    }),
-    stock: readNumber(body, 'stock_quantity', { min: 0, max: 99999999 }),
-    location: parseLocation(body),
+    product: {
+      sku: readText(body, 'sku', 100, false) ?? generatedSku(),
+      name: readText(body, 'name', 150, true)!,
+      description: readText(body, 'description', 5000, false),
+      brand: readText(body, 'brand', 100, false),
+      price: readNumber(body, 'price', { min: 0, max: 99999999 }),
+      unitOfMeasure: readText(body, 'unit_of_measure', 50, true)!,
+      categoryId: readNumber(body, 'category_id', {
+        min: 1,
+        max: 2147483647,
+        integer: true,
+      }),
+      stock: readNumber(body, 'stock_quantity', { min: 0, max: 99999999 }),
+      location: hasCoordinates ? parseLocation(body) : null,
+    },
+    slotCode,
   };
 }
 
@@ -159,24 +185,45 @@ export async function listOptions(adminId: number) {
 
 export async function createProduct(rawBody: unknown, adminId: number) {
   const adminBranch = await adminBranchOf(adminId);
-  const product = parseNewProduct(rawBody);
+  const { product, slotCode } = parseNewProductRequest(rawBody);
   if (!(await productRepository.categoryExists(product.categoryId))) {
     throw new HttpError(400, 'category_id no existe.');
   }
-  const branchId = await productRepository.findActiveSectionBranch(
-    product.location.sectionId,
-  );
-  if (branchId === null) {
-    throw new HttpError(400, 'section_id no pertenece a una sucursal activa.');
+  if (product.location !== null) {
+    const branchId = await productRepository.findActiveSectionBranch(
+      product.location.sectionId,
+    );
+    if (branchId === null) {
+      throw new HttpError(400, 'section_id no pertenece a una sucursal activa.');
+    }
+    if (branchId !== adminBranch) {
+      throw new HttpError(403, 'Solo puedes gestionar productos de tu sucursal.');
+    }
   }
-  if (branchId !== adminBranch) {
-    throw new HttpError(403, 'Solo puedes gestionar productos de tu sucursal.');
+  if (slotCode !== null) {
+    const slot = await productRepository.findSlot(adminBranch, slotCode);
+    if (!slot) throw new HttpError(404, 'Espacio no encontrado.');
+    if (slot.product_id !== null) throw new HttpError(409, 'El espacio está ocupado.');
+    product.location = {
+      sectionId: slot.section_id,
+      x: Number(slot.coordinate_x),
+      y: Number(slot.coordinate_y),
+      z: Number(slot.coordinate_z),
+      shelf: slot.shelf,
+    };
   }
   if (await productRepository.skuExists(product.sku)) {
     throw new HttpError(409, 'Ya existe un producto con ese sku.');
   }
-  const productId = await productRepository.create(product, branchId);
-  return productRepository.findLocations(productId);
+  try {
+    const productId = await productRepository.create(product, adminBranch, slotCode);
+    return productRepository.findLocations(productId);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'slot_unavailable') {
+      throw new HttpError(409, 'El espacio está ocupado.');
+    }
+    throw error;
+  }
 }
 
 export async function listSlotsFor(
@@ -232,7 +279,7 @@ export async function createInSlot(
     throw new HttpError(400, 'category_id no existe.');
   }
   const product: NewProduct = {
-    sku: `ADM_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    sku: generatedSku(),
     name: readText(body, 'name', 150, true)!,
     description: null,
     brand: null,
@@ -320,4 +367,64 @@ export async function moveProduct(
   }
   await productRepository.move(productId, branchId, location);
   return productRepository.findLocations(productId);
+}
+
+export async function assignToSlot(
+  slotCode: string,
+  rawBody: unknown,
+  adminId: number,
+) {
+  const branchId = await adminBranchOf(adminId);
+  const body = asRecord(rawBody);
+  rejectUnexpected(body, ['product_id']);
+  const productId = readNumber(body, 'product_id', {
+    min: 1,
+    max: 2147483647,
+    integer: true,
+  });
+  const { result, displaced } = await productRepository.assignSlot(
+    branchId,
+    slotCode,
+    productId,
+  );
+  if (result === 'missing') throw new HttpError(404, 'Espacio no encontrado.');
+  if (result === 'not_in_branch') {
+    throw new HttpError(404, 'El producto no está en el inventario de tu sucursal.');
+  }
+  return { result, displaced_product_id: displaced };
+}
+
+export async function unplaceSlot(slotCode: string, adminId: number) {
+  const branchId = await adminBranchOf(adminId);
+  const { result, productId } = await productRepository.unplaceSlot(branchId, slotCode);
+  if (result === 'missing') throw new HttpError(404, 'Espacio no encontrado.');
+  if (result === 'empty') throw new HttpError(409, 'El espacio ya está libre.');
+  return { result, product_id: productId };
+}
+
+export interface CollectInput {
+  branchId: number;
+  quantity: number;
+}
+
+/** «Ya lo tengo»: la sucursal y cuántas unidades se llevó la persona (1 por defecto). */
+export function parseCollect(rawBody: unknown): CollectInput {
+  const body = asRecord(rawBody ?? {});
+  rejectUnexpected(body, ['branch_id', 'quantity']);
+  return {
+    branchId: readNumber(body, 'branch_id', { min: 1, max: 2147483647, integer: true }),
+    quantity:
+      body.quantity === undefined
+        ? 1
+        : readNumber(body, 'quantity', { min: 1, max: 1000, integer: true }),
+  };
+}
+
+export async function collectProduct(productId: number, rawBody: unknown) {
+  const { branchId, quantity } = parseCollect(rawBody);
+  const stock = await productRepository.collectFromBranch(productId, branchId, quantity);
+  if (stock === null) {
+    throw new HttpError(404, 'El producto no está en esa sucursal.');
+  }
+  return { product_id: productId, branch_id: branchId, stock_quantity: stock };
 }

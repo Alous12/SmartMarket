@@ -41,6 +41,8 @@ class StoreModel {
     required this.metadata,
     this.fromCatalog = false,
     this.emptySlots = const [],
+    this.unplaced = const [],
+    this.branchId,
   });
 
   final Supermarket store;
@@ -49,6 +51,14 @@ class StoreModel {
 
   /// Espacios del modelo sin producto en la base de datos (cajas ocultas).
   final List<StoreProduct> emptySlots;
+
+  /// Productos del inventario de la sucursal que no están en ningún espacio del
+  /// modelo (recién creados o retirados del estante). No tienen caja en el mapa:
+  /// su [StoreProduct.id] es `db:<id>` y [StoreProduct.slotId] está vacío.
+  final List<StoreProduct> unplaced;
+
+  /// Id de la sucursal en la base de datos (null si el backend no respondió).
+  final int? branchId;
 
   /// Verdadero si `metadata.products` viene de la base de datos: solo esos
   /// productos existen en la sucursal.
@@ -69,6 +79,7 @@ class StoreProduct {
     this.z,
     this.section,
     this.shelf,
+    this.shelfId,
   });
 
   final String id;
@@ -84,6 +95,9 @@ class StoreProduct {
 
   /// Espacio de estantería del modelo (slot_id del GLB) donde está la caja.
   final String slotId;
+
+  /// Estante del modelo (shelf_id del GLB) al que pertenece [slotId].
+  final String? shelfId;
 
   /// Id del producto en la base de datos (null si solo existe en el modelo).
   final int? dbId;
@@ -114,6 +128,7 @@ class StoreProduct {
     z: z,
     section: section ?? this.section,
     shelf: shelf ?? this.shelf,
+    shelfId: shelfId,
   );
 }
 

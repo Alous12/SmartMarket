@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/providers/store_providers.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/empty_or_error_state.dart';
 import '../../../assistant/domain/entities/recipe_availability.dart';
@@ -56,6 +57,13 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   /// Ruta que armó el asistente (para el resumen al terminar).
   ShoppingRoute? _activeRoute;
   DateTime? _routeStartedAt;
+
+  /// Productos (id de la BD) ya descontados del stock en la ruta en curso: al
+  /// repetirla no se vuelven a descontar.
+  final _pickedUp = <int>{};
+
+  /// Algún «Ya lo tengo» cambió el stock: al quitar la ruta se recargan los datos.
+  bool _stockChanged = false;
 
   /// La ruta vino de una receta del asistente (queda en su historial).
   String? get _activeRecipe => _activeRoute == null ? null : 'receta';
@@ -123,6 +131,9 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
           return;
         }
         if (mounted && !_edit.editing) _edit.toggle(model);
+      case PlaceProductRequest():
+        // Colocar productos del inventario se hace en el plano 2D del admin.
+        break;
     }
   }
 
@@ -218,7 +229,30 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   }
 
   void _advanceNavigation({required bool collected}) {
+    final product = ref.read(navigationSessionProvider).current;
     ref.read(navigationSessionProvider.notifier).advance(collected: collected);
+    if (collected && product != null) _discountStock(product);
+  }
+
+  /// «Ya lo tengo»: descuenta una unidad del stock de la sucursal en la base de
+  /// datos. No frena la ruta: si falla, solo avisa.
+  Future<void> _discountStock(StoreProduct product) async {
+    final productId = product.dbId;
+    final branchId = ref.read(storeModelProvider).value?.branchId;
+    if (productId == null || branchId == null || !_pickedUp.add(productId)) {
+      return;
+    }
+    try {
+      await ref
+          .read(catalogApiProvider)
+          .collectProduct(productId, branchId: branchId);
+      _stockChanged = true;
+    } on Object {
+      _pickedUp.remove(productId);
+      if (mounted) {
+        _toast('No se pudo descontar "${product.name}" del stock.');
+      }
+    }
   }
 
   /// Ruta desde la entrada que termina en el último producto.
@@ -246,6 +280,7 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
 
   void _startNavigation(StoreModel model, StoreRoutePlan plan) {
     _routeStartedAt = DateTime.now();
+    _pickedUp.clear();
     ref
         .read(navigationSessionProvider.notifier)
         .start(plan, northDegrees: model.store.mapNorthDegrees);
@@ -443,7 +478,14 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
   void _clearRoute() {
     _activeRoute = null;
     _tracking = true;
+    _pickedUp.clear();
     ref.read(navigationSessionProvider.notifier).clear();
+    // El stock que muestran Productos y el mapa se pone al día al terminar, no
+    // durante la ruta: así el mapa no se recarga mientras la persona camina.
+    if (_stockChanged) {
+      _stockChanged = false;
+      ref.invalidate(storeModelProvider);
+    }
   }
 
   /// Lleva a la pestaña Asistente para armar la lista desde un plato.
@@ -539,6 +581,20 @@ class _SupermarketScreenState extends ConsumerState<SupermarketScreen> {
       children: [
         Row(
           children: [
+            // Abierto desde el plano del admin: se vuelve con este botón.
+            if (Navigator.of(context).canPop()) ...[
+              MapButton(
+                tooltip: 'Volver al plano',
+                size: 48,
+                onPressed: () => Navigator.of(context).maybePop(),
+                child: const Icon(
+                  Icons.arrow_back_rounded,
+                  size: 22,
+                  color: AppTheme.ink,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(left: 6),

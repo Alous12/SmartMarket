@@ -68,6 +68,7 @@ class AssistantReply extends StatelessWidget {
     this.onOpenList,
     this.onShowRowsInMap,
     this.onUpdateStock,
+    this.admin = false,
   });
 
   final AssistantChatEntry entry;
@@ -87,6 +88,7 @@ class AssistantReply extends StatelessWidget {
   /// Respuestas del admin: ver los productos en el mapa o ir a editar stock.
   final ValueChanged<List<AdminAnswerRow>>? onShowRowsInMap;
   final VoidCallback? onUpdateStock;
+  final bool admin;
 
   @override
   Widget build(BuildContext context) {
@@ -106,21 +108,27 @@ class AssistantReply extends StatelessWidget {
             onRetry: onRetryPolling,
           );
         } else {
-          stateKey = 'processing';
+          stateKey = admin ? 'admin-processing' : 'processing';
           content = _Steps(
-            title: recipeName ?? 'Analizando tu plato',
-            steps: [
-              recipeName == null
-                  ? const _Step('Identificando la receta…', _StepState.running)
-                  : const _Step('Receta reconocida', _StepState.done),
-              if (recipeName != null)
-                _Step(
-                  'Preparando la lista de $recipeName…',
-                  _StepState.running,
-                ),
-              const _Step('Consultar el inventario', _StepState.pending),
-            ],
-            progress: recipeName == null ? 0.18 : 0.42,
+            title: admin ? 'Consultando inventario' : recipeName ?? 'Analizando tu plato',
+            steps: admin
+                ? const [
+                    _Step('Entendiendo tu consulta…', _StepState.running),
+                    _Step('Consultando existencias reales', _StepState.pending),
+                  ]
+                : [
+                    recipeName == null
+                        ? const _Step('Identificando la receta…', _StepState.running)
+                        : const _Step('Receta reconocida', _StepState.done),
+                    if (recipeName != null)
+                      _Step(
+                        'Preparando la lista de $recipeName…',
+                        _StepState.running,
+                      ),
+                    const _Step('Consultar el inventario', _StepState.pending),
+                  ],
+            progress: admin ? 0.35 : recipeName == null ? 0.18 : 0.42,
+            showOpenList: !admin,
           );
         }
       case AssistantRequestStatus.completed when request.isGeneralAnswer:
@@ -247,11 +255,13 @@ class _Steps extends StatelessWidget {
     required this.title,
     required this.steps,
     required this.progress,
+    this.showOpenList = true,
   });
 
   final String title;
   final List<_Step> steps;
   final double progress;
+  final bool showOpenList;
 
   @override
   Widget build(BuildContext context) {
@@ -268,9 +278,11 @@ class _Steps extends StatelessWidget {
           ),
         const SizedBox(height: 12),
         _ProgressBar(value: progress),
-        const SizedBox(height: 18),
-        // La lista se abre cuando el inventario termina de revisarse.
-        const _OpenListButton(onPressed: null),
+        if (showOpenList) ...[
+          const SizedBox(height: 18),
+          // La lista se abre cuando el inventario termina de revisarse.
+          const _OpenListButton(onPressed: null),
+        ],
       ],
     );
   }
@@ -1148,6 +1160,28 @@ class _AdminAnswer extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppTheme.tint,
+            borderRadius: BorderRadius.circular(AppTheme.radiusS),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.insights_outlined, color: AppTheme.green, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Resumen de inventario',
+                style: TextStyle(
+                  color: AppTheme.ink,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
         Text(
           request.message!,
           style: const TextStyle(

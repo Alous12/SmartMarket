@@ -7,6 +7,8 @@ import '../../../../core/widgets/empty_or_error_state.dart';
 import '../../../../core/widgets/skeleton_box.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/entities/store_model.dart';
+import '../../domain/services/store_layout.dart';
+import '../controllers/product_creation.dart';
 import '../providers/store_model_provider.dart';
 import '../widgets/product_sheets.dart';
 
@@ -19,10 +21,43 @@ class ProductsScreen extends ConsumerWidget {
     context.goNamed('supermarket');
   }
 
-  /// Abre el mapa directamente en «Editar tienda».
+  /// Abre el mapa directamente en «Editar tienda» (para el admin, su plano 2D).
   void _editStore(BuildContext context, WidgetRef ref) {
     ref.read(mapRequestProvider.notifier).send(const StartEditRequest());
     context.goNamed('supermarket');
+  }
+
+  /// Lleva al plano para poner en un estante un producto del inventario.
+  void _place(BuildContext context, WidgetRef ref, StoreProduct product) {
+    final dbId = product.dbId;
+    if (dbId == null) return;
+    ref.read(mapRequestProvider.notifier).send(PlaceProductRequest(dbId));
+    context.goNamed('supermarket');
+  }
+
+  Future<void> _createProduct(
+    BuildContext context,
+    WidgetRef ref,
+    StoreModel model,
+  ) async {
+    if (!model.fromCatalog) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay conexión con el servidor: no se pueden crear productos ahora.',
+          ),
+        ),
+      );
+      return;
+    }
+    await createProductFlow(
+      context,
+      ref,
+      layout: buildStoreLayout(
+        products: model.metadata.products,
+        emptySlots: model.emptySlots,
+      ),
+    );
   }
 
   Future<void> _rename(
@@ -65,6 +100,11 @@ class ProductsScreen extends ConsumerWidget {
           onEditStore: isAdmin ? () => _editStore(context, ref) : null,
           onAskAssistant: isAdmin ? () => context.goNamed('assistant') : null,
           onOpenUsers: isAdmin ? () => context.pushNamed('users') : null,
+          unplaced: isAdmin ? model.unplaced : const [],
+          onCreateProduct: isAdmin
+              ? () => _createProduct(context, ref, model)
+              : null,
+          onPlace: isAdmin ? (product) => _place(context, ref, product) : null,
           onSelected: (product) => _showInMap(context, ref, product),
           onRename: (product) => _rename(context, ref, product),
         ),

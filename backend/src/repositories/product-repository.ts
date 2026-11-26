@@ -29,7 +29,8 @@ export interface NewProduct {
   unitOfMeasure: string;
   categoryId: number;
   stock: number;
-  location: LocationInput;
+  /** null: el producto queda solo en el inventario, sin estante. */
+  location: LocationInput | null;
 }
 
 export interface LocationInput {
@@ -170,7 +171,102 @@ async function syncLocation(
   );
 }
 
+/**
+ * Deja la ubicación del producto en el espacio: actualiza la que ya tiene en la
+ * sucursal o crea una si estaba solo en el inventario.
+ */
+async function placeLocation(
+  connection: Connection,
+  branchId: number,
+  productId: number,
+  slot: SlotRow,
+): Promise<void> {
+  const [updated] = await connection.execute<ResultSetHeader>(
+    `UPDATE product_locations pl
+     JOIN sections s ON s.section_id = pl.section_id
+     SET pl.section_id = ?, pl.coordinate_x = ?, pl.coordinate_y = ?,
+         pl.coordinate_z = ?, pl.shelf = ?
+     WHERE pl.product_id = ? AND s.branch_id = ?`,
+    [
+      slot.section_id,
+      slot.coordinate_x,
+      slot.coordinate_y,
+      slot.coordinate_z,
+      slot.shelf,
+      productId,
+      branchId,
+    ],
+  );
+  if (updated.affectedRows > 0) return;
+  await connection.execute(
+    `INSERT INTO product_locations
+       (product_id, section_id, coordinate_x, coordinate_y, coordinate_z, shelf)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      productId,
+      slot.section_id,
+      slot.coordinate_x,
+      slot.coordinate_y,
+      slot.coordinate_z,
+      slot.shelf,
+    ],
+  );
+}
+
+/**
+ * Quita la ubicación del producto en la sucursal: sigue en el inventario (con su
+ * stock), pero el asistente ya no lo ofrece porque no está en ningún estante.
+ */
+async function clearLocation(
+  connection: Connection,
+  branchId: number,
+  productId: number,
+): Promise<void> {
+  await connection.execute(
+    `DELETE pl FROM product_locations pl
+     JOIN sections s ON s.section_id = pl.section_id
+     WHERE pl.product_id = ? AND s.branch_id = ?`,
+    [productId, branchId],
+  );
+}
+
+const slotColumns = `code, section_id, shelf, coordinate_x, coordinate_y,
+                     coordinate_z, product_id`;
+
 export type MoveResult = 'missing' | 'empty_source' | 'moved' | 'swapped';
+
+/** Mueve o intercambia dentro de una transacción ya abierta. */
+async function moveWithin(
+  connection: Connection,
+  branchId: number,
+  fromCode: string,
+  toCode: string,
+): Promise<MoveResult> {
+  const [slots] = await connection.execute<SlotRow[]>(
+    `SELECT ${slotColumns}
+     FROM shelf_slots WHERE branch_id = ? AND code IN (?, ?) FOR UPDATE`,
+    [branchId, fromCode, toCode],
+  );
+  const from = slots.find((s) => s.code === fromCode);
+  const to = slots.find((s) => s.code === toCode);
+  if (!from || !to) return 'missing';
+  if (from.product_id === null) return 'empty_source';
+  const moving = from.product_id;
+  const displaced = to.product_id;
+  const setProduct = (code: string, productId: number | null) =>
+    connection.execute(
+      'UPDATE shelf_slots SET product_id = ? WHERE branch_id = ? AND code = ?',
+      [productId, branchId, code],
+    );
+  await setProduct(fromCode, null);
+  await setProduct(toCode, moving);
+  await syncLocation(connection, branchId, moving, to);
+  if (displaced !== null) {
+    await setProduct(fromCode, displaced);
+    await syncLocation(connection, branchId, displaced, from);
+  }
+  return displaced === null ? 'moved' : 'swapped';
+}
 
 /** Mueve el producto de un espacio a otro; si el destino está ocupado los intercambia. */
 export async function moveSlot(
@@ -181,38 +277,165 @@ export async function moveSlot(
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const result = await moveWithin(connection, branchId, fromCode, toCode);
+    if (result === 'missing' || result === 'empty_source') {
+      await connection.rollback();
+    } else {
+      await connection.commit();
+    }
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export type AssignResult =
+  | 'missing'
+  | 'not_in_branch'
+  | 'unchanged'
+  | 'placed'
+  | 'replaced'
+  | 'moved'
+  | 'swapped';
+
+/**
+ * Pone en el espacio un producto del inventario de la sucursal. Si ese producto
+ * ya estaba en otro espacio, se mueve (o se intercambia, si el destino estaba
+ * ocupado); si no, el que ocupaba el espacio vuelve al inventario.
+ */
+export async function assignSlot(
+  branchId: number,
+  code: string,
+  productId: number,
+): Promise<{ result: AssignResult; displaced: number | null }> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const finish = async (result: AssignResult, displaced: number | null = null) => {
+      if (result === 'missing' || result === 'not_in_branch' || result === 'unchanged') {
+        await connection.rollback();
+      } else {
+        await connection.commit();
+      }
+      return { result, displaced };
+    };
     const [slots] = await connection.execute<SlotRow[]>(
-      `SELECT code, section_id, shelf, coordinate_x, coordinate_y, coordinate_z,
-              product_id
-       FROM shelf_slots WHERE branch_id = ? AND code IN (?, ?) FOR UPDATE`,
-      [branchId, fromCode, toCode],
+      `SELECT ${slotColumns}
+       FROM shelf_slots WHERE branch_id = ? AND code = ? FOR UPDATE`,
+      [branchId, code],
     );
-    const from = slots.find((s) => s.code === fromCode);
-    const to = slots.find((s) => s.code === toCode);
-    if (!from || !to) {
-      await connection.rollback();
-      return 'missing';
+    const slot = slots[0];
+    if (!slot) return finish('missing');
+    const [inBranch] = await connection.execute<RowDataPacket[]>(
+      `SELECT 1 FROM inventory i
+       JOIN products p ON p.product_id = i.product_id AND p.status = TRUE
+       WHERE i.product_id = ? AND i.branch_id = ? FOR UPDATE`,
+      [productId, branchId],
+    );
+    if (inBranch.length === 0) return finish('not_in_branch');
+    if (slot.product_id === productId) return finish('unchanged');
+
+    const [current] = await connection.execute<SlotRow[]>(
+      `SELECT ${slotColumns}
+       FROM shelf_slots WHERE branch_id = ? AND product_id = ? FOR UPDATE`,
+      [branchId, productId],
+    );
+    if (current[0]) {
+      const moved = await moveWithin(connection, branchId, current[0].code, code);
+      return finish(moved === 'swapped' ? 'swapped' : 'moved', slot.product_id);
     }
-    if (from.product_id === null) {
-      await connection.rollback();
-      return 'empty_source';
-    }
-    const moving = from.product_id;
-    const displaced = to.product_id;
-    const setProduct = (code: string, productId: number | null) =>
-      connection.execute(
-        'UPDATE shelf_slots SET product_id = ? WHERE branch_id = ? AND code = ?',
-        [productId, branchId, code],
-      );
-    await setProduct(fromCode, null);
-    await setProduct(toCode, moving);
-    await syncLocation(connection, branchId, moving, to);
+
+    const displaced = slot.product_id;
     if (displaced !== null) {
-      await setProduct(fromCode, displaced);
-      await syncLocation(connection, branchId, displaced, from);
+      await connection.execute(
+        'UPDATE shelf_slots SET product_id = NULL WHERE branch_id = ? AND code = ?',
+        [branchId, code],
+      );
+      await clearLocation(connection, branchId, displaced);
     }
+    await connection.execute(
+      'UPDATE shelf_slots SET product_id = ? WHERE branch_id = ? AND code = ?',
+      [productId, branchId, code],
+    );
+    await placeLocation(connection, branchId, productId, slot);
+    return finish(displaced === null ? 'placed' : 'replaced', displaced);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export type UnplaceResult = 'missing' | 'empty' | 'unplaced';
+
+/** Vacía el espacio: su producto queda en el inventario, sin ubicación. */
+export async function unplaceSlot(
+  branchId: number,
+  code: string,
+): Promise<{ result: UnplaceResult; productId: number | null }> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [slots] = await connection.execute<SlotRow[]>(
+      `SELECT ${slotColumns}
+       FROM shelf_slots WHERE branch_id = ? AND code = ? FOR UPDATE`,
+      [branchId, code],
+    );
+    const slot = slots[0];
+    if (!slot || slot.product_id === null) {
+      await connection.rollback();
+      return { result: slot ? 'empty' : 'missing', productId: null };
+    }
+    await connection.execute(
+      'UPDATE shelf_slots SET product_id = NULL WHERE branch_id = ? AND code = ?',
+      [branchId, code],
+    );
+    await clearLocation(connection, branchId, slot.product_id);
     await connection.commit();
-    return displaced === null ? 'moved' : 'swapped';
+    return { result: 'unplaced', productId: slot.product_id };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * Descuenta [quantity] unidades del stock de la sucursal (nunca baja de 0).
+ * Devuelve el stock nuevo, o null si el producto no está en esa sucursal.
+ */
+export async function collectFromBranch(
+  productId: number,
+  branchId: number,
+  quantity: number,
+): Promise<number | null> {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [updated] = await connection.execute<ResultSetHeader>(
+      `UPDATE inventory i
+       JOIN branches b ON b.branch_id = i.branch_id AND b.status = TRUE
+       JOIN products p ON p.product_id = i.product_id AND p.status = TRUE
+       SET i.stock_quantity = GREATEST(i.stock_quantity - ?, 0),
+           i.updated_at = CURRENT_TIMESTAMP
+       WHERE i.product_id = ? AND i.branch_id = ?`,
+      [quantity, productId, branchId],
+    );
+    if (updated.affectedRows === 0) {
+      await connection.rollback();
+      return null;
+    }
+    const [rows] = await connection.execute<RowDataPacket[]>(
+      'SELECT stock_quantity FROM inventory WHERE product_id = ? AND branch_id = ?',
+      [productId, branchId],
+    );
+    await connection.commit();
+    return Number(rows[0]?.stock_quantity ?? 0);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -303,19 +526,21 @@ export async function create(
        VALUES (?, ?, ?)`,
       [branchId, productId, product.stock],
     );
-    await connection.execute(
-      `INSERT INTO product_locations
-         (product_id, section_id, coordinate_x, coordinate_y, coordinate_z, shelf)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        productId,
-        product.location.sectionId,
-        product.location.x,
-        product.location.y,
-        product.location.z,
-        product.location.shelf,
-      ],
-    );
+    if (product.location !== null) {
+      await connection.execute(
+        `INSERT INTO product_locations
+           (product_id, section_id, coordinate_x, coordinate_y, coordinate_z, shelf)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          productId,
+          product.location.sectionId,
+          product.location.x,
+          product.location.y,
+          product.location.z,
+          product.location.shelf,
+        ],
+      );
+    }
     if (slotCode !== null) {
       await connection.execute(
         'UPDATE shelf_slots SET product_id = ? WHERE branch_id = ? AND code = ?',

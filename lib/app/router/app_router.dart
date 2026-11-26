@@ -10,6 +10,7 @@ import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/staff/presentation/screens/staff_screen.dart';
 import '../../features/store_navigation/presentation/screens/products_screen.dart';
 import '../../features/store_navigation/presentation/screens/supermarket_screen.dart';
+import '../../features/store_navigation/presentation/screens/supermarket_tab.dart';
 import '../../features/users/presentation/screens/users_screen.dart';
 import '../shell/main_shell.dart';
 
@@ -82,7 +83,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/supermercado',
                 name: 'supermarket',
-                builder: (context, state) => const SupermarketScreen(),
+                builder: (context, state) => const SupermarketTab(),
               ),
             ],
           ),
@@ -96,6 +97,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      // Mapa 3D a pantalla completa, sobre el plano 2D del admin.
+      GoRoute(
+        path: '/mapa-3d',
+        name: 'map3d',
+        pageBuilder: (context, state) =>
+            _fadeSlidePage(state, const SupermarketScreen()),
       ),
       GoRoute(
         path: '/trabajador',

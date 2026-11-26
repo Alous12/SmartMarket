@@ -8,6 +8,8 @@ export class AiServiceError extends Error {
     message: string,
     readonly userMessage = 'El asistente no pudo procesar tu petición. Inténtalo de nuevo.',
     readonly rejected = false,
+    /** Permite intentar otro proveedor sin ocultar errores de respuesta o validación. */
+    readonly unavailable = false,
   ) {
     super(message);
     this.name = 'AiServiceError';
